@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css?v=2">
+<style>
+  body { background: rgba(12,10,8,0.75); overflow: hidden; }
+  body.solid-bg { background: var(--bg-obsidian); }
+
+  .wrap {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 720px;
+    background: var(--bg-panel);
+    border: 1px solid var(--accent-orange-dim);
+    border-radius: 10px;
+    padding: 28px 32px;
+    box-shadow: 0 0 40px rgba(255,140,66,0.18);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 36px;
+    letter-spacing: 0.14em;
+    margin: 0 0 4px 0;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  .tagline {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 26px;
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  @media (max-width: 600px) {
+    .steps { grid-template-columns: 1fr; }
+  }
+  .step {
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 18px 14px;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: default;
+  }
+  .step:hover {
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 12px rgba(255,140,66,0.3);
+    transform: translateY(-2px);
+  }
+  .step .num {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    border-radius: 50%;
+    background: var(--accent-orange);
+    color: #1a0e06;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+  .step .title {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    font-size: 16px;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .step .desc {
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .step .icon {
+    font-size: 32px;
+    color: var(--accent-orange);
+    margin-bottom: 6px;
+    text-shadow: var(--glow-orange);
+  }
+  .step.done .num { background: var(--accent-green); color: #0c1f10; }
+  .step.done .icon { color: var(--accent-green); text-shadow: 0 0 10px rgba(74,255,138,0.7); }
+  .step.done .title { color: var(--accent-green); }
+
+  .actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+  .actions .btn {
+    min-width: 180px;
+  }
+
+  .hint {
+    margin-top: 16px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Welcome, Miner</h1>
+    <div class="tagline">5x5 grid · 60s rounds · stake SOL, hit motherlodes, earn ORE</div>
+
+    <div class="steps">
+      <div class="step" id="step-1">
+        <div class="num">1</div>
+        <div class="icon">◴</div>
+        <div class="title">Watch a Round</div>
+        <div class="desc">Look at the grid monument in the town square. Every 60 seconds a winning cell is revealed and the pool is paid out.</div>
+      </div>
+      <div class="step" id="step-2">
+        <div class="num">2</div>
+        <div class="icon">⛏</div>
+        <div class="title">Walk to a Kiosk</div>
+        <div class="desc">Find a mining kiosk to connect your Phantom or Backpack wallet. We never custody funds.</div>
+      </div>
+      <div class="step" id="step-3">
+        <div class="num">3</div>
+        <div class="icon">◈</div>
+        <div class="title">Deploy SOL</div>
+        <div class="desc">Pick one of the 25 cells, stake some SOL, then wait for round close. If your cell wins, you split the losing cells' SOL pool.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn gold" id="btn-got-it">Got it — start playing</button>
+      <button class="btn ghost" id="btn-skip">Skip tour</button>
+    </div>
+
+    <div class="hint">Open the Grid Monument iframe anywhere to see live board state.</div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js?v=2"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var step1 = document.getElementById('step-1');
+  var step2 = document.getElementById('step-2');
+  var step3 = document.getElementById('step-3');
+  var btnGot  = document.getElementById('btn-got-it');
+  var btnSkip = document.getElementById('btn-skip');
+
+  // Show step progression visually — each step lights up after 2s.
+  setTimeout(function () { step1.classList.add('done'); }, 700);
+  setTimeout(function () { step2.classList.add('done'); }, 1500);
+  setTimeout(function () { step3.classList.add('done'); }, 2300);
+
+  function dismiss(reason) {
+    try {
+      PortalsBridge.activateTask('tutorial_done');
+      PortalsBridge.sendRaw({ type: 'tutorial_done', reason: reason });
+      PortalsBridge.debugLog('tutorial dismissed (' + reason + ')');
+    } catch (e) { /* ignore */ }
+    btnGot.disabled = true;
+    btnSkip.disabled = true;
+    btnGot.textContent = 'Closing…';
+    // The Portals task should close the iframe; in case it doesn't, fade out locally.
+    setTimeout(function () {
+      document.querySelector('.card').style.transition = 'opacity 0.4s ease';
+      document.querySelector('.card').style.opacity = '0';
+    }, 200);
+  }
+
+  btnGot.addEventListener('click', function () { dismiss('got_it'); });
+  btnSkip.addEventListener('click', function () { dismiss('skip'); });
+
+  // Allow Portals to dismiss us too (e.g. timeout)
+  PortalsBridge.onMessage(function (m) {
+    if (m.type === 'welcome' && m.payload && m.payload[0] === 'dismiss') {
+      dismiss('portals');
+    }
+  });
+</script>
+</body>
+</html>

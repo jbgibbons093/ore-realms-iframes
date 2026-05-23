@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wallet — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/hud.css?v=2">
 <style>
   body { background: transparent; }
   body.solid-bg { background: var(--bg-obsidian); padding: 20px; }
   .wrap {
-    max-width: 380px;
+    max-width: 420px;
     margin: 14px auto;
     background: var(--bg-panel);
     border: 1px solid var(--border-color);
@@ -60,7 +60,58 @@
     color: var(--accent-gold);
     font-size: 11px;
   }
-  .row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* Deploy preview */
+  .preview {
+    margin-top: 10px;
+    padding: 10px;
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .preview .num {
+    font-family: var(--font-display);
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    font-size: 14px;
+  }
+  .preview .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 2px 0;
+  }
+  .preview .lbl { text-transform: uppercase; letter-spacing: 0.08em; font-size: 9px; }
+
+  /* Recent deploys */
+  .recent {
+    margin-top: 14px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+  }
+  .recent .recent-title {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .recent .item {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px dashed #1a1410;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .recent .item:last-child { border-bottom: none; }
+  .recent .item .cell { color: var(--accent-orange); font-family: var(--font-display); }
+  .recent .item .amt { color: var(--accent-gold); font-family: var(--font-mono); }
+  .recent .item .time { font-size: 9px; opacity: 0.7; }
+  .recent .empty { color: var(--text-faint); font-style: italic; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -88,13 +139,25 @@
       <select id="d-cell"></select>
 
       <label for="d-amt">SOL amount</label>
-      <input id="d-amt" type="number" min="0.001" step="0.001" value="0.01">
+      <input id="d-amt" type="number" min="0.001" step="0.001" value="0.05">
 
-      <button class="btn gold" id="btn-deploy" style="width:100%;margin-top:12px">Deploy to Cell</button>
+      <div class="preview" id="d-preview">
+        <div class="row"><span class="lbl">Cell pool</span><span class="num" id="p-cellpool">0.000 SOL</span></div>
+        <div class="row"><span class="lbl">Round pool</span><span class="num" id="p-pool">0.000 SOL</span></div>
+        <div class="row"><span class="lbl">If you win</span><span class="num" id="p-win">— SOL</span></div>
+        <div class="row"><span class="lbl">Your share</span><span class="num" id="p-share">—%</span></div>
+      </div>
+
+      <button class="btn gold" id="btn-deploy" style="width:100%;margin-top:12px">Confirm Deploy</button>
 
       <div class="notice" id="d-notice">
-        MVP: deploy currently opens <strong>ore.supply</strong> in a new tab to finish the transaction.
+        MVP: opens <strong>ore.supply</strong> in a new tab to finish the transaction (with cell + amount pre-filled in URL hash).
       </div>
+    </div>
+
+    <div class="recent">
+      <div class="recent-title">Last 5 Deploys (this session)</div>
+      <div id="recent-list"><div class="empty">No deploys yet.</div></div>
     </div>
 
     <div style="margin-top:12px">
@@ -105,16 +168,14 @@
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js"></script>
+<script src="js/portals-bridge.js?v=2"></script>
+<script src="js/ore-decode.js?v=2"></script>
+<script src="js/solana.js?v=2"></script>
+<script src="js/ore-client.js?v=2"></script>
 <script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
 <script>
   if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
   if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
-
-  var ORE_MINT = 'oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp';
-  var ORE_DECIMALS = 11;
-  // Helius public mainnet endpoint (rate-limited but fine for read-only).
-  var RPC_URL = 'https://api.mainnet-beta.solana.com';
 
   var elConnect    = document.getElementById('connect-section');
   var elConnected  = document.getElementById('connected-section');
@@ -128,6 +189,12 @@
   var elPhantom    = document.getElementById('btn-phantom');
   var elBackpack   = document.getElementById('btn-backpack');
 
+  var elPCellpool  = document.getElementById('p-cellpool');
+  var elPPool      = document.getElementById('p-pool');
+  var elPWin       = document.getElementById('p-win');
+  var elPShare     = document.getElementById('p-share');
+  var elRecent     = document.getElementById('recent-list');
+
   // Populate cell dropdown
   for (var i = 1; i <= 25; i++) {
     var o = document.createElement('option');
@@ -136,9 +203,29 @@
     elCell.appendChild(o);
   }
 
-  var connection = null;
+  // Pre-fill cell + amount from URL hash, e.g. wallet.html#cell=17&amount=0.05
+  function readHash() {
+    var h = (location.hash || '').replace(/^#/, '');
+    if (!h) return;
+    var parts = h.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i].split('=');
+      if (kv[0] === 'cell') {
+        var n = parseInt(kv[1], 10);
+        if (n >= 1 && n <= 25) elCell.value = String(n);
+      }
+      if (kv[0] === 'amount') {
+        var a = parseFloat(kv[1]);
+        if (a > 0) elAmt.value = String(a);
+      }
+    }
+  }
+  readHash();
+
   var publicKey  = null;
-  var providerKind = null; // 'phantom' | 'backpack'
+  var providerKind = null;
+  var lastGrid = new Array(25).fill(0);
+  var recentDeploys = []; // {cell, amount, time}
 
   function shorten(s) {
     if (!s) return '';
@@ -158,46 +245,21 @@
     return null;
   }
 
-  function ensureConnection() {
-    if (!connection && window.solanaWeb3 && window.solanaWeb3.Connection) {
-      connection = new window.solanaWeb3.Connection(RPC_URL, 'confirmed');
-    }
-    return connection;
-  }
-
+  // Use the SolanaApi wrapper for read calls (Helius-first, mainnet-beta fallback).
   async function fetchBalances() {
     if (!publicKey) return;
-    var conn = ensureConnection();
-    if (!conn) {
-      elSol.textContent = 'n/a';
-      elOre.textContent = 'n/a';
-      return;
-    }
-    var pkObj = new window.solanaWeb3.PublicKey(publicKey);
-
     try {
-      var lamports = await conn.getBalance(pkObj);
-      elSol.textContent = (lamports / 1e9).toFixed(3);
+      var w = await SolanaApi.getWalletInfo(publicKey);
+      elSol.textContent = w.sol.toFixed(3);
     } catch (e) {
-      PortalsBridge.debugLog('SOL balance err: ' + e.message);
+      PortalsBridge.debugLog('SOL bal err ' + e.message);
       elSol.textContent = 'err';
     }
-
     try {
-      var mintObj = new window.solanaWeb3.PublicKey(ORE_MINT);
-      var resp = await conn.getParsedTokenAccountsByOwner(pkObj, { mint: mintObj });
-      var total = 0;
-      (resp.value || []).forEach(function (acc) {
-        try {
-          var info = acc.account.data.parsed.info.tokenAmount;
-          var ui = info.uiAmount;
-          if (ui == null && info.amount != null) ui = Number(info.amount) / Math.pow(10, ORE_DECIMALS);
-          if (ui) total += ui;
-        } catch (e) { /* ignore */ }
-      });
-      elOre.textContent = total.toFixed(3);
+      var o = await SolanaApi.getOreBalance(publicKey);
+      elOre.textContent = o.ui.toFixed(3);
     } catch (e) {
-      PortalsBridge.debugLog('ORE balance err: ' + e.message);
+      PortalsBridge.debugLog('ORE bal err ' + e.message);
       elOre.textContent = 'err';
     }
   }
@@ -219,7 +281,9 @@
       elConnect.classList.add('hidden');
       elConnected.classList.remove('hidden');
 
+      // Broadcast the address through Portals so HUD/Vault iframes can react.
       PortalsBridge.sendRaw({ type: 'wallet_connected', address: publicKey, provider: kind });
+      PortalsBridge.sendRaw('wallet_' + publicKey);
       PortalsBridge.activateTask('Wallet_Connected');
       PortalsBridge.debugLog('connected ' + kind + ' ' + shorten(publicKey));
 
@@ -246,6 +310,55 @@
   elBackpack.addEventListener('click', function () { connectWith('backpack'); });
   elDisconnect.addEventListener('click', disconnect);
 
+  function updatePreview() {
+    var cellIdx = parseInt(elCell.value, 10);
+    var amount = parseFloat(elAmt.value);
+    var cellPool = (cellIdx >= 1 && cellIdx <= 25) ? (lastGrid[cellIdx - 1] || 0) : 0;
+    var totalPool = lastGrid.reduce(function (a, b) { return a + b; }, 0);
+    var losingPool = Math.max(0, totalPool - cellPool); // what gets paid out to winners
+    elPCellpool.textContent = cellPool.toFixed(3) + ' SOL';
+    elPPool.textContent = totalPool.toFixed(3) + ' SOL';
+    if (amount > 0 && cellIdx >= 1) {
+      // If your cell wins, your payout = your stake + (your stake / (cellPool + your stake)) * losingPool
+      var newCellPool = cellPool + amount;
+      var sharePct = newCellPool > 0 ? (amount / newCellPool) : 0;
+      var payout = amount + sharePct * losingPool;
+      elPWin.textContent = payout.toFixed(3) + ' SOL';
+      elPShare.textContent = (sharePct * 100).toFixed(1) + '%';
+    } else {
+      elPWin.textContent = '— SOL';
+      elPShare.textContent = '—%';
+    }
+  }
+
+  elCell.addEventListener('change', updatePreview);
+  elAmt.addEventListener('input', updatePreview);
+
+  // Hook OreClient to keep lastGrid fresh for the preview calculation.
+  OreClient.startPolling({
+    onGrid: function (cells) { lastGrid = cells.slice(); updatePreview(); },
+    onSource: function (s) { PortalsBridge.debugLog('ore-client source: ' + s); }
+  });
+
+  function renderRecent() {
+    if (recentDeploys.length === 0) {
+      elRecent.innerHTML = '<div class="empty">No deploys yet.</div>';
+      return;
+    }
+    var html = '';
+    for (var i = recentDeploys.length - 1; i >= 0; i--) {
+      var d = recentDeploys[i];
+      var ago = Math.floor((Date.now() - d.time) / 1000);
+      var t = (ago < 60) ? (ago + 's ago') : (Math.floor(ago / 60) + 'm ago');
+      html += '<div class="item">' +
+        '<span class="cell">Cell ' + d.cell + '</span>' +
+        '<span class="amt">' + d.amount.toFixed(3) + ' SOL</span>' +
+        '<span class="time">' + t + '</span>' +
+        '</div>';
+    }
+    elRecent.innerHTML = html;
+  }
+
   elDeploy.addEventListener('click', function () {
     var cellIdx = parseInt(elCell.value, 10);
     var amount = parseFloat(elAmt.value);
@@ -256,18 +369,24 @@
     PortalsBridge.activateTask('Deploy_Made_' + cellIdx);
     PortalsBridge.sendRaw({ type: 'deploy_initiated', cell: cellIdx, sol: amount });
 
-    // MVP handoff to ore.supply
-    var url = 'https://ore.supply';
-    // If a deep link with cell pre-fill becomes available, swap it in here.
+    // Record in session list
+    recentDeploys.push({ cell: cellIdx, amount: amount, time: Date.now() });
+    while (recentDeploys.length > 5) recentDeploys.shift();
+    renderRecent();
+
+    // MVP handoff to ore.supply with hash params (ore.supply may or may not honor;
+    // harmless if it ignores them).
+    var url = 'https://ore.supply/#cell=' + cellIdx + '&amount=' + amount;
     var win = window.open(url, '_blank', 'noopener');
     if (!win) {
       alert('Pop-up blocked. Open ore.supply manually to deploy ' + amount + ' SOL on cell ' + cellIdx + '.');
     }
-    PortalsBridge.debugLog('deploy ' + amount + ' SOL -> cell ' + cellIdx + ' (handoff to ore.supply)');
+    PortalsBridge.debugLog('deploy ' + amount + ' SOL -> cell ' + cellIdx + ' (handoff ' + url + ')');
   });
 
-  // Periodic balance refresh
+  // Periodic balance refresh + recent list re-render so "Xs ago" updates
   setInterval(function () { if (publicKey) fetchBalances(); }, 30000);
+  setInterval(renderRecent, 5000);
 
   // Auto-connect if the provider remembers us
   window.addEventListener('load', function () {
@@ -278,9 +397,13 @@
       elAddr.textContent = publicKey;
       elConnect.classList.add('hidden');
       elConnected.classList.remove('hidden');
+      PortalsBridge.sendRaw('wallet_' + publicKey);
       fetchBalances();
     }
+    updatePreview();
   });
+
+  updatePreview();
 </script>
 </body>
 </html>

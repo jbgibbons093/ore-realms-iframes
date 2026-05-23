@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leaderboard — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css?v=2">
+<style>
+  body { background: var(--bg-obsidian); overflow: auto; padding: 14px; }
+
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+  }
+
+  .top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 28px;
+    letter-spacing: 0.12em;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .live-indicator {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .live-indicator .status-text { color: var(--accent-green); }
+
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 800px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 14px;
+  }
+  .panel h2 {
+    font-family: var(--font-display);
+    font-size: 14px;
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    letter-spacing: 0.1em;
+    margin: 0 0 10px 0;
+    text-transform: uppercase;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .panel h2 .icon { color: var(--accent-gold); margin-right: 6px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 30px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 4px;
+    border-bottom: 1px dashed #1a1410;
+    font-size: 12px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .rank {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    font-size: 14px;
+    text-align: center;
+  }
+  .row .rank.gold { color: var(--accent-gold); text-shadow: var(--glow-gold); }
+  .row .label { color: var(--text-primary); font-family: var(--font-mono); }
+  .row .label .sub { display: block; color: var(--text-dim); font-size: 10px; }
+  .row .value {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    font-size: 13px;
+    text-align: right;
+  }
+  .row .value.gold { color: var(--accent-gold); text-shadow: var(--glow-gold); }
+
+  .row.mother {
+    background: linear-gradient(90deg, rgba(255,210,74,0.07), transparent);
+    border-left: 2px solid var(--accent-gold);
+    padding-left: 6px;
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11px;
+    padding: 18px 0;
+    font-style: italic;
+  }
+
+  footer {
+    margin-top: 18px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+
+  /* Subtle pulse on the live indicator dot */
+  .pulse-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: dot-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes dot-pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%     { opacity: 0.4; transform: scale(0.7); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Leaderboard</h1>
+    <div class="live-indicator">
+      <span class="pulse-dot"></span>
+      <span>Auto-refresh</span>
+      <span class="status-text" id="lb-src">—</span>
+    </div>
+  </div>
+
+  <div class="columns">
+    <div class="panel">
+      <h2><span class="icon">▣</span>Last 10 Rounds</h2>
+      <div id="last-rounds"></div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="icon">⛏</span>Top Miners (7d)</h2>
+      <div id="top-miners"></div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="icon">★</span>Motherlode Wall</h2>
+      <div id="motherlodes"></div>
+    </div>
+  </div>
+
+  <footer>
+    Live data via oredata.supply &middot; on-chain via Helius RPC &middot; sim fallback. Refresh 5s.
+  </footer>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js?v=2"></script>
+<script src="js/ore-decode.js?v=2"></script>
+<script src="js/solana.js?v=2"></script>
+<script src="js/ore-client.js?v=2"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+
+  var elRounds = document.getElementById('last-rounds');
+  var elMiners = document.getElementById('top-miners');
+  var elMothers = document.getElementById('motherlodes');
+  var elSrc = document.getElementById('lb-src');
+
+  function emptyMsg(msg) {
+    return '<div class="empty-state">' + msg + '</div>';
+  }
+
+  function renderLastRounds(rounds) {
+    if (!rounds || rounds.length === 0) { elRounds.innerHTML = emptyMsg('Waiting for round results…'); return; }
+    var html = '';
+    // Newest first
+    var recent = rounds.slice().reverse().slice(0, 10);
+    for (var i = 0; i < recent.length; i++) {
+      var r = recent[i];
+      var rankCls = (i === 0) ? 'gold' : '';
+      var motherCls = r.motherlode ? 'mother' : '';
+      var payout = r.pool ? r.pool.toFixed(3) + ' SOL' : '—';
+      html += '<div class="row ' + motherCls + '">' +
+        '<div class="rank ' + rankCls + '">#' + (r.round || '?') + '</div>' +
+        '<div class="label">Cell ' + r.winner + (r.motherlode ? ' <span class="text-gold">MOTHERLODE</span>' : '') +
+        '<span class="sub">' + (r.motherlode ? 'motherlode payout' : 'standard payout') + '</span></div>' +
+        '<div class="value ' + (r.motherlode ? 'gold' : '') + '">' + payout + '</div>' +
+        '</div>';
+    }
+    elRounds.innerHTML = html;
+  }
+
+  function renderMotherlodes(motherlodes) {
+    if (!motherlodes || motherlodes.length === 0) {
+      elMothers.innerHTML = emptyMsg('No motherlode hits yet. 1-in-625 odds per round.');
+      return;
+    }
+    var html = '';
+    var recent = motherlodes.slice().reverse();
+    for (var i = 0; i < recent.length; i++) {
+      var r = recent[i];
+      html += '<div class="row mother">' +
+        '<div class="rank gold">★</div>' +
+        '<div class="label">Round ' + r.round + ' &middot; Cell ' + r.winner +
+        '<span class="sub">cumulative motherlode pool</span></div>' +
+        '<div class="value gold">' + (r.pool ? r.pool.toFixed(3) : '~10') + ' ORE</div>' +
+        '</div>';
+    }
+    elMothers.innerHTML = html;
+  }
+
+  // Placeholder top-miners list — once a real oredata.supply endpoint is reachable
+  // this gets populated; otherwise we synthesize plausible bogus names for visual.
+  function renderTopMiners(miners) {
+    if (!miners || miners.length === 0) {
+      // Synthesize a placeholder so the panel doesn't look broken.
+      miners = [
+        { addr: '7vYZ…f4kp', ore: 142.31 },
+        { addr: 'BkqJ…m9zq', ore:  98.04 },
+        { addr: '9pMx…r2tU', ore:  77.16 },
+        { addr: '4hLk…d8nA', ore:  61.55 },
+        { addr: 'Cm8T…s7eB', ore:  44.20 },
+        { addr: '2nWp…x6gQ', ore:  31.04 },
+        { addr: 'D6rN…q3hY', ore:  22.18 },
+        { addr: '5tRf…w1zM', ore:  17.66 }
+      ];
+      var html = '<div class="empty-state" style="padding-bottom:6px">Placeholder while oredata.supply leaderboard endpoint is unreachable.</div>';
+      for (var i = 0; i < miners.length; i++) {
+        var m = miners[i];
+        var rankCls = (i === 0) ? 'gold' : '';
+        html += '<div class="row">' +
+          '<div class="rank ' + rankCls + '">' + (i + 1) + '</div>' +
+          '<div class="label mono">' + m.addr +
+          '<span class="sub">7-day estimated yield</span></div>' +
+          '<div class="value">' + m.ore.toFixed(2) + ' ORE</div>' +
+          '</div>';
+      }
+      elMiners.innerHTML = html;
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < miners.length && i < 10; i++) {
+      var m = miners[i];
+      var rankCls = (i === 0) ? 'gold' : '';
+      html += '<div class="row">' +
+        '<div class="rank ' + rankCls + '">' + (i + 1) + '</div>' +
+        '<div class="label mono">' + (m.addr || m.address || '—') +
+        '<span class="sub">' + (m.label || '7-day yield') + '</span></div>' +
+        '<div class="value">' + (m.ore ? m.ore.toFixed(2) + ' ORE' : '—') + '</div>' +
+        '</div>';
+    }
+    elMiners.innerHTML = html;
+  }
+
+  function refresh() {
+    var hist = (window.OreClient && OreClient.getHistory) ? OreClient.getHistory() : { rounds: [], motherlodes: [] };
+    renderLastRounds(hist.rounds);
+    renderMotherlodes(hist.motherlodes);
+    // Top miners: try oredata; fall back to placeholder.
+    fetch('https://oredata.supply/api/leaderboard?days=7', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) { renderTopMiners(j && j.miners); })
+      .catch(function () { renderTopMiners(null); });
+
+    var src = (window.OreClient && OreClient.getSource) ? OreClient.getSource() : null;
+    elSrc.textContent = src ? src.toUpperCase() : 'WAITING';
+  }
+
+  // Start the OreClient so history fills up; we also listen to ore:history events.
+  OreClient.startPolling({
+    onGrid: function () { /* no-op; we refresh on a timer */ },
+    onSource: function (s) { elSrc.textContent = s ? s.toUpperCase() : 'OFFLINE'; }
+  });
+
+  window.addEventListener('ore:history', function () { refresh(); });
+
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+</body>
+</html>

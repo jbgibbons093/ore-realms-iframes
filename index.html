@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ORE REALMS — Iframe Gallery</title>
-<link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/hud.css?v=2">
 <style>
   body.solid-bg {
     overflow: auto;
@@ -102,13 +102,15 @@
 
 <script>
   var IFRAMES = [
-    { file: 'hud.html',          name: 'HUD',           desc: 'Top-bar status: round, timer, total SOL, dust, connection.' },
-    { file: 'grid.html',         name: 'Grid Monument', desc: 'Live 5x5 board. Drives round-reveal tasks back to Portals.' },
-    { file: 'wallet.html',       name: 'Wallet / Deploy', desc: 'Phantom / Backpack connect, deploy SOL handoff to ore.supply.' },
-    { file: 'vault.html',        name: 'Vault / Bank',  desc: 'Wallet balances, unclaimed ORE / SOL, claim CTAs.' },
+    { file: 'hud.html',          name: 'HUD',           desc: 'Top-bar status: round, timer, pool, mini-heatmap, wallet, kills, dust.' },
+    { file: 'grid.html',         name: 'Grid Monument', desc: 'Live 5x5 board with SOL bars, leader badge, confetti, ORE/round, next-round timer.' },
+    { file: 'wallet.html',       name: 'Wallet / Deploy', desc: 'Phantom / Backpack connect, deploy preview, last-5 deploys, hash-prefilled ore.supply handoff.' },
+    { file: 'vault.html',        name: 'Vault / Bank',  desc: 'Wallet balances via Helius RPC, unclaimed ORE/SOL, claim CTAs.' },
     { file: 'bet.html',          name: 'Watch-Tower Bet', desc: 'Pick a cell and wager Dust. Sends Bet_Cell_N task.' },
     { file: 'gameover.html?winner=17', name: 'Game Over Card', desc: 'Round-end winner reveal + confetti. Auto-dismiss 8s.' },
-    { file: 'arm-wrestle.html',  name: 'Arm Wrestle',   desc: 'Spam-click vs NPC in the Saloon. 5s window.' }
+    { file: 'arm-wrestle.html',  name: 'Arm Wrestle',   desc: 'Spam-click vs NPC in the Saloon. 5s window.' },
+    { file: 'leaderboard.html',  name: 'Leaderboard',   desc: 'Last 10 rounds, top 7d miners, motherlode wall. Auto-refresh 5s.' },
+    { file: 'welcome.html',      name: 'Welcome / Tutorial', desc: 'First-time splash. 3-step tour. Sends tutorial_done task.' }
   ];
 
   var cards = document.getElementById('cards');
@@ -125,7 +127,7 @@
     cards.appendChild(d);
   });
 
-  fetch('VERSION').then(function(r){ return r.text(); }).then(function(t){
+  fetch('VERSION?_=' + Date.now()).then(function(r){ return r.text(); }).then(function(t){
     document.getElementById('ver').textContent = (t || '?').trim();
   }).catch(function(){ document.getElementById('ver').textContent = '?'; });
 </script>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HUD — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/hud.css?v=2">
 <style>
   /* HUD is overlay-style: transparent body, fixed compact bar. */
   body { background: transparent; }
@@ -13,33 +13,83 @@
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
-    min-width: 720px;
+    min-width: 860px;
+  }
+  .hud-bar {
+    height: 50px;
+    padding: 0 12px;
   }
   .brand {
     font-family: var(--font-display);
     color: var(--accent-orange);
     text-shadow: var(--glow-orange);
-    font-size: 18px;
+    font-size: 15px;
     letter-spacing: 0.12em;
-    padding: 0 16px;
+    padding: 0 12px;
     border-right: 1px solid var(--border-color);
     height: 100%;
     display: flex;
     align-items: center;
   }
+  .hud-cell {
+    min-width: 76px;
+    padding: 0 8px;
+  }
+  .hud-label { font-size: 9px; }
+  .hud-value { font-size: 16px; }
   .conn-cell {
-    min-width: 80px;
+    min-width: 64px;
     align-items: center;
   }
   .conn-cell .conn-row {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 4px;
   }
   .conn-cell .status-text {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-dim);
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
+  .status-text.live { color: var(--accent-green); }
+  .status-text.rpc { color: var(--accent-orange); }
+  .status-text.simulated, .status-text.sim { color: var(--accent-yellow); }
+
+  /* Mini-grid heatmap — 25 dots in 5x5 in 200x40 area */
+  .mini-cell-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0 10px;
+    border-right: 1px solid var(--border-color);
+    min-width: 220px;
+  }
+  .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(13, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 2px;
+    width: 200px;
+    height: 26px;
+    margin-top: 2px;
+  }
+  /* 25 cells but with 13 cols x 2 rows we have 26 slots — we'll only use 25, leaving last blank */
+  .mini-grid .mc {
+    background: #1a1410;
+    border-radius: 1px;
+    transition: background 0.4s ease, box-shadow 0.4s ease;
+  }
+  .mini-grid .mc.empty { background: #1a1410; }
+  .mini-grid .mc.lead { box-shadow: 0 0 4px var(--accent-gold); }
+  .mini-grid .mc.winner { background: var(--accent-gold); box-shadow: 0 0 6px var(--accent-gold); }
+
+  .wallet-cell { min-width: 110px; }
+  .wallet-cell .addr {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0;
+  }
+  .wallet-cell .addr.connected { color: var(--accent-green); }
 </style>
 </head>
 <body>
@@ -53,18 +103,33 @@
     </div>
 
     <div class="hud-cell">
-      <div class="hud-label">Countdown</div>
+      <div class="hud-label">Time</div>
       <div class="hud-value" id="hud-timer">--:--</div>
     </div>
 
     <div class="hud-cell">
-      <div class="hud-label">SOL Deployed</div>
+      <div class="hud-label">Pool</div>
       <div class="hud-value" id="hud-sol">0.00</div>
+    </div>
+
+    <div class="mini-cell-wrap">
+      <div class="hud-label">Grid Heatmap</div>
+      <div class="mini-grid" id="hud-mini"></div>
     </div>
 
     <div class="hud-cell">
       <div class="hud-label">Dust</div>
       <div class="hud-value gold" id="hud-dust">0</div>
+    </div>
+
+    <div class="hud-cell">
+      <div class="hud-label">Kills</div>
+      <div class="hud-value" id="hud-kills">0</div>
+    </div>
+
+    <div class="hud-cell wallet-cell">
+      <div class="hud-label">Wallet</div>
+      <div class="addr" id="hud-wallet">not connected</div>
     </div>
 
     <div class="hud-cell conn-cell">
@@ -79,8 +144,10 @@
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js"></script>
-<script src="js/ore-client.js"></script>
+<script src="js/portals-bridge.js?v=2"></script>
+<script src="js/ore-decode.js?v=2"></script>
+<script src="js/solana.js?v=2"></script>
+<script src="js/ore-client.js?v=2"></script>
 <script>
   if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
 
@@ -88,8 +155,20 @@
   var elTimer  = document.getElementById('hud-timer');
   var elSol    = document.getElementById('hud-sol');
   var elDust   = document.getElementById('hud-dust');
+  var elKills  = document.getElementById('hud-kills');
+  var elWallet = document.getElementById('hud-wallet');
   var elDot    = document.getElementById('hud-dot');
   var elStatus = document.getElementById('hud-status');
+  var elMini   = document.getElementById('hud-mini');
+
+  // Build 25 mini cells + 1 blank
+  var miniCells = [];
+  for (var i = 0; i < 26; i++) {
+    var mc = document.createElement('div');
+    mc.className = 'mc empty';
+    elMini.appendChild(mc);
+    if (i < 25) miniCells.push(mc);
+  }
 
   function fmtTime(sec) {
     sec = Math.max(0, Math.floor(sec));
@@ -100,17 +179,76 @@
 
   function setStatus(label, cls) {
     elDot.className = 'status-dot ' + cls;
+    elStatus.className = 'status-text ' + cls;
     elStatus.textContent = label;
   }
 
-  // Portals → iframe: listen for dust updates ("dust_120")
+  function shorten(s) {
+    if (!s) return '';
+    if (s.length <= 12) return s;
+    return s.slice(0, 4) + '…' + s.slice(-4);
+  }
+
+  // Heatmap colors interpolated between dark-red, orange, gold based on share.
+  function shareColor(share) {
+    // share in [0, 1]. Map to a hex color along a 3-stop gradient.
+    if (share <= 0) return '#1a1410';
+    var stops = [
+      { p: 0.0,  c: [42, 34, 28] },     // very dim
+      { p: 0.15, c: [80, 35, 20] },
+      { p: 0.4,  c: [255, 140, 66] },
+      { p: 1.0,  c: [255, 210, 74] }
+    ];
+    for (var i = 0; i < stops.length - 1; i++) {
+      var a = stops[i], b = stops[i + 1];
+      if (share >= a.p && share <= b.p) {
+        var t = (share - a.p) / (b.p - a.p);
+        var rgb = [
+          Math.round(a.c[0] + (b.c[0] - a.c[0]) * t),
+          Math.round(a.c[1] + (b.c[1] - a.c[1]) * t),
+          Math.round(a.c[2] + (b.c[2] - a.c[2]) * t)
+        ];
+        return 'rgb(' + rgb.join(',') + ')';
+      }
+    }
+    return 'rgb(255,210,74)';
+  }
+
+  function updateMiniGrid(cells) {
+    var total = 0;
+    var max = 0;
+    var maxIdx = -1;
+    for (var i = 0; i < cells.length; i++) {
+      total += cells[i];
+      if (cells[i] > max) { max = cells[i]; maxIdx = i; }
+    }
+    for (var j = 0; j < 25; j++) {
+      var v = cells[j] || 0;
+      var share = total > 0 ? (v / total) : 0;
+      // Scale share so visible cells are visible even with small share
+      var visShare = Math.min(1, share * 4);
+      miniCells[j].style.background = shareColor(visShare);
+      miniCells[j].classList.toggle('empty', v < 0.001);
+      miniCells[j].classList.toggle('lead', j === maxIdx && v > 0.001);
+    }
+  }
+
+  // Portals → iframe messages
   PortalsBridge.onMessage(function (m) {
     if (m.type === 'dust') {
       var n = (m.payload && m.payload[0] != null) ? Number(m.payload[0]) : 0;
       elDust.textContent = isFinite(n) ? Math.floor(n).toLocaleString() : '0';
     }
-    // We also accept round / time / total_sol pushes from Portals if Portals chooses
-    // to drive the HUD instead of the local OreClient.
+    if (m.type === 'kills' && m.payload && m.payload[0] != null) {
+      var k = Number(m.payload[0]);
+      elKills.textContent = isFinite(k) ? Math.floor(k).toString() : '0';
+    }
+    if (m.type === 'wallet' && m.payload && m.payload[0]) {
+      var addr = String(m.payload[0]);
+      elWallet.textContent = shorten(addr);
+      elWallet.className = 'addr connected';
+      elWallet.title = addr;
+    }
     if (m.type === 'round' && m.payload && m.payload[0] != null) {
       elRound.textContent = '#' + Number(m.payload[0]);
     }
@@ -120,26 +258,36 @@
     if (m.type === 'totalsol' && m.payload && m.payload[0] != null) {
       elSol.textContent = Number(m.payload[0]).toFixed(2);
     }
+    // Winner highlight on the mini-grid (idx is 1..25).
+    if (m.type === 'winner' && m.payload && m.payload[0] != null) {
+      var w = Number(m.payload[0]);
+      if (w >= 1 && w <= 25) {
+        miniCells.forEach(function (c) { c.classList.remove('winner'); });
+        miniCells[w - 1].classList.add('winner');
+      }
+    }
   });
 
-  // Local poll provides authoritative round/timer/sol if Portals isn't driving us.
   OreClient.startPolling({
     onGrid: function (cells) {
       var total = 0;
       for (var i = 0; i < cells.length; i++) total += cells[i];
       elSol.textContent = total.toFixed(2);
+      updateMiniGrid(cells);
     },
-    onRound: function (n) {
-      elRound.textContent = '#' + n;
-    },
-    onTimer: function (sec) {
-      elTimer.textContent = fmtTime(sec);
-    },
+    onRound: function (n) { elRound.textContent = '#' + n; },
+    onTimer: function (sec) { elTimer.textContent = fmtTime(sec); },
     onWinner: function (idx, mother) {
       PortalsBridge.debugLog('winner cell ' + idx + (mother ? ' MOTHERLODE' : ''));
+      if (idx >= 1 && idx <= 25) {
+        miniCells.forEach(function (c) { c.classList.remove('winner'); });
+        miniCells[idx - 1].classList.add('winner');
+        setTimeout(function () { miniCells[idx - 1].classList.remove('winner'); }, 6000);
+      }
     },
     onSource: function (src) {
-      if (src === 'live') setStatus('live', 'connected');
+      if (src === 'live') setStatus('live', 'live');
+      else if (src === 'rpc') setStatus('rpc', 'rpc');
       else if (src === 'simulated') setStatus('sim', 'simulated');
       else setStatus('offline', 'offline');
     }

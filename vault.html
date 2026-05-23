@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vault — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/hud.css?v=2">
 <style>
   body { background: transparent; }
   body.solid-bg { background: var(--bg-obsidian); padding: 20px; }
@@ -127,15 +127,13 @@
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js"></script>
+<script src="js/portals-bridge.js?v=2"></script>
+<script src="js/ore-decode.js?v=2"></script>
+<script src="js/solana.js?v=2"></script>
 <script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
 <script>
   if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
   if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
-
-  var ORE_MINT = 'oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp';
-  var ORE_DECIMALS = 11;
-  var RPC_URL = 'https://api.mainnet-beta.solana.com';
 
   var elEmpty = document.getElementById('empty-state');
   var elVault = document.getElementById('vault-state');
@@ -149,7 +147,6 @@
   var elClaimSol    = document.getElementById('btn-claim-sol');
   var elRefresh     = document.getElementById('btn-refresh');
 
-  var connection = null;
   var publicKey  = null;
 
   function shorten(s) {
@@ -158,36 +155,20 @@
     return s.slice(0, 6) + '…' + s.slice(-6);
   }
 
-  function ensureConnection() {
-    if (!connection && window.solanaWeb3 && window.solanaWeb3.Connection) {
-      connection = new window.solanaWeb3.Connection(RPC_URL, 'confirmed');
-    }
-    return connection;
-  }
-
   async function fetchBalances() {
     if (!publicKey) return;
-    var conn = ensureConnection();
-    if (!conn) return;
-    var pk = new window.solanaWeb3.PublicKey(publicKey);
     try {
-      var lamports = await conn.getBalance(pk);
-      elSol.textContent = (lamports / 1e9).toFixed(3);
-    } catch (e) { elSol.textContent = 'err'; PortalsBridge.debugLog('SOL err ' + e.message); }
+      var w = await SolanaApi.getWalletInfo(publicKey);
+      elSol.textContent = w.sol.toFixed(3);
+    } catch (e) {
+      elSol.textContent = 'err'; PortalsBridge.debugLog('SOL err ' + e.message);
+    }
     try {
-      var mintObj = new window.solanaWeb3.PublicKey(ORE_MINT);
-      var resp = await conn.getParsedTokenAccountsByOwner(pk, { mint: mintObj });
-      var total = 0;
-      (resp.value || []).forEach(function (acc) {
-        try {
-          var info = acc.account.data.parsed.info.tokenAmount;
-          var ui = info.uiAmount;
-          if (ui == null && info.amount != null) ui = Number(info.amount) / Math.pow(10, ORE_DECIMALS);
-          if (ui) total += ui;
-        } catch (e) { /* ignore */ }
-      });
-      elOre.textContent = total.toFixed(3);
-    } catch (e) { elOre.textContent = 'err'; PortalsBridge.debugLog('ORE err ' + e.message); }
+      var o = await SolanaApi.getOreBalance(publicKey);
+      elOre.textContent = o.ui.toFixed(3);
+    } catch (e) {
+      elOre.textContent = 'err'; PortalsBridge.debugLog('ORE err ' + e.message);
+    }
   }
 
   function showConnected(addr) {

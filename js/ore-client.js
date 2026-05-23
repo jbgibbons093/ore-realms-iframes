@@ -1,13 +1,18 @@
-/* ore-client.js — pulls live grid data from oredata.supply, falls back to a
- * deterministic simulation when the upstream is unreachable or CORS-blocked.
+/* ore-client.js — pulls live grid data from oredata.supply, falls back to
+ * direct Solana RPC reads (Helius), and finally to a deterministic simulation.
+ *
+ * Source priority:
+ *   1. oredata.supply (HTTP fetch, may CORS-fail)
+ *   2. Solana RPC via SolanaApi.getGridState() (best-effort schema decode)
+ *   3. Local deterministic simulation
  *
  * Usage:
  *   OreClient.startPolling({
- *     onGrid:   function(values25) {},   // 25 SOL values per cell
+ *     onGrid:   function(values25) {},          // 25 SOL values per cell
  *     onRound:  function(roundNumber) {},
- *     onWinner: function(cellIndex, isMotherlode) {},  // 1..25
+ *     onWinner: function(cellIndex, isMotherlode) {}, // 1..25
  *     onTimer:  function(secondsRemaining) {},
- *     onSource: function(sourceName) {}  // optional: 'live' | 'simulated'
+ *     onSource: function(sourceName) {}         // 'live' | 'rpc' | 'simulated'
  *   });
  */
 (function () {
@@ -16,6 +21,11 @@
   var API_BASE = 'https://oredata.supply/api';
   var POLL_INTERVAL_MS = 3000;
   var ROUND_LENGTH_SEC = 60;
+
+  // After this many consecutive live-fetch failures, drop to RPC.
+  var LIVE_FAIL_THRESHOLD = 2;
+  // After this many consecutive RPC failures, drop to simulation.
+  var RPC_FAIL_THRESHOLD = 2;
 
   function nowSec() { return Math.floor(Date.now() / 1000); }
 
@@ -30,12 +40,8 @@
 
   // ---------------- SIMULATION ----------------
   // A deterministic-feeling fake feed for offline / pre-launch use.
-  // - Round starts every ROUND_LENGTH_SEC, anchored to epoch.
-  // - Each cell value walks upward through the round (random per cell, biased to grow).
-  // - At round close picks a random winner (weighted toward higher-SOL cells).
-  // - 1-in-625 chance of motherlode (independent of winner pick).
   var SimState = {
-    seedRoundBase: null,        // epoch round id at the time we started, for monotonic counting
+    seedRoundBase: null,
     cells: new Array(25).fill(0),
     lastTickSec: 0,
     currentRoundId: null,
@@ -50,13 +56,11 @@
   }
 
   function simResetRound() {
-    // Each cell: max value 0..3, growth rate per second.
     SimState.cells = new Array(25).fill(0);
     SimState.cellMaxes = new Array(25);
     SimState.cellGrowthRates = new Array(25);
     for (var i = 0; i < 25; i++) {
-      SimState.cellMaxes[i] = Math.random() * 3; // 0..3 SOL
-      // Some cells barely get touched, others fill fast
+      SimState.cellMaxes[i] = Math.random() * 3;
       var hot = Math.random() < 0.25;
       SimState.cellGrowthRates[i] = hot ? (0.04 + Math.random() * 0.06) : (Math.random() * 0.02);
     }
@@ -67,13 +71,10 @@
     var currentRoundId = Math.floor(t / ROUND_LENGTH_SEC);
     var roundNumber = currentRoundId - SimState.seedRoundBase + 1;
 
-    // New round?
     if (SimState.currentRoundId === null) {
       SimState.currentRoundId = currentRoundId;
     }
     if (currentRoundId !== SimState.currentRoundId) {
-      // Close the previous round: pick winner & maybe motherlode.
-      // Weighted by SOL on each cell.
       var totals = SimState.cells.slice();
       var sum = totals.reduce(function (a, b) { return a + b; }, 0);
       var winnerIdx;
@@ -90,14 +91,14 @@
       }
       var motherlode = (Math.random() < (1 / 625));
 
-      // Notify before resetting
       pollState.lastWinner = { idx: winnerIdx + 1, motherlode: motherlode, round: roundNumber - 1 };
+      // Track in history (used by leaderboard).
+      pushHistory({ round: roundNumber - 1, winner: winnerIdx + 1, motherlode: motherlode, pool: sum });
 
       SimState.currentRoundId = currentRoundId;
       simResetRound();
     }
 
-    // Update cells over time toward their target
     var sinceTick = t - SimState.lastTickSec;
     if (sinceTick > 0) {
       for (var i = 0; i < 25; i++) {
@@ -114,11 +115,12 @@
       grid: SimState.cells.slice(),
       round: roundNumber,
       timer: timerRemaining,
-      winner: pollState.lastWinner
+      winner: pollState.lastWinner,
+      source: 'simulated'
     };
   }
 
-  // ---------------- LIVE FETCH ----------------
+  // ---------------- LIVE FETCH (oredata.supply) ----------------
   function fetchLiveOnce() {
     return fetch(API_BASE + '/grid', { method: 'GET', cache: 'no-store' })
       .then(function (r) {
@@ -126,8 +128,6 @@
         return r.json();
       })
       .then(function (json) {
-        // Defensive normalization — endpoint shape isn't formally documented.
-        // We expect something like {round, timer, motherlode, cells:[{idx,sol},...]} or {cells:[number x25]} etc.
         var grid = new Array(25).fill(0);
         var round = json.round || json.round_id || json.roundNumber || 0;
         var timer = json.timer || json.seconds_remaining || json.timerSec || 0;
@@ -160,19 +160,74 @@
       });
   }
 
+  // ---------------- RPC FETCH (direct chain) ----------------
+  function fetchRpcOnce() {
+    if (!window.SolanaApi) return Promise.reject(new Error('SolanaApi missing'));
+    return Promise.all([
+      window.SolanaApi.getGridState(),
+      window.SolanaApi.getCurrentRound().catch(function () { return null; })
+    ]).then(function (results) {
+      var gridRes = results[0];
+      var roundRes = results[1];
+      var t = nowSec();
+      var secsIntoRound = t % ROUND_LENGTH_SEC;
+      var timerRemaining = Math.max(0, ROUND_LENGTH_SEC - secsIntoRound);
+      var round = roundRes ? roundRes.round
+                : Math.floor(t / ROUND_LENGTH_SEC); // fallback derived from epoch
+      return {
+        grid: gridRes.grid,
+        round: round,
+        timer: timerRemaining,
+        winner: null,
+        source: 'rpc'
+      };
+    });
+  }
+
+  // ---------------- HISTORY (for leaderboard.html) ----------------
+  // Ring buffer of last 20 round outcomes.
+  var History = {
+    rounds: [],   // {round, winner, motherlode, pool}
+    motherlodes: []
+  };
+
+  function pushHistory(entry) {
+    History.rounds.push(entry);
+    while (History.rounds.length > 20) History.rounds.shift();
+    if (entry.motherlode) {
+      History.motherlodes.push(entry);
+      while (History.motherlodes.length > 20) History.motherlodes.shift();
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('ore:history', { detail: { rounds: History.rounds.slice(), motherlodes: History.motherlodes.slice() } }));
+    } catch (e) { /* ignore */ }
+  }
+
+  function getHistory() {
+    return {
+      rounds: History.rounds.slice(),
+      motherlodes: History.motherlodes.slice()
+    };
+  }
+
   // ---------------- POLLER ----------------
   var pollState = {
     handlers: null,
     timer: null,
-    source: null,            // 'live' | 'simulated' | null
-    consecutiveFailures: 0,
+    source: null,
+    liveFailures: 0,
+    rpcFailures: 0,
     lastRound: -1,
-    lastWinner: null         // {idx, motherlode, round}
+    lastWinner: null,
+    lastGrid: null,
+    lastTimer: null
   };
 
   function emit(data) {
+    if (data.grid) pollState.lastGrid = data.grid.slice();
+    if (data.timer != null) pollState.lastTimer = data.timer;
     var h = pollState.handlers || {};
-    if (typeof h.onGrid === 'function') h.onGrid(data.grid.slice());
+    if (typeof h.onGrid === 'function' && data.grid) h.onGrid(data.grid.slice());
     if (typeof h.onTimer === 'function' && data.timer != null) h.onTimer(data.timer);
     if (typeof h.onRound === 'function' && data.round && data.round !== pollState.lastRound) {
       pollState.lastRound = data.round;
@@ -181,7 +236,7 @@
     if (data.winner && data.winner.idx) {
       var w = data.winner;
       if (typeof h.onWinner === 'function') h.onWinner(w.idx, !!w.motherlode);
-      pollState.lastWinner = null; // consume
+      pollState.lastWinner = null;
     }
   }
 
@@ -196,18 +251,40 @@
 
   function tickLive() {
     fetchLiveOnce().then(function (data) {
-      pollState.consecutiveFailures = 0;
+      pollState.liveFailures = 0;
+      pollState.rpcFailures = 0;
       setSource('live');
       emit(data);
     }).catch(function (err) {
-      pollState.consecutiveFailures++;
-      safeLog('live fetch failed (' + pollState.consecutiveFailures + '): ' + (err && err.message || err));
-      if (pollState.consecutiveFailures >= 2) {
-        // Fall back to simulation
-        if (pollState.source !== 'simulated') {
-          simInit();
+      pollState.liveFailures++;
+      safeLog('live fetch failed (' + pollState.liveFailures + '): ' + (err && err.message || err));
+      if (pollState.liveFailures >= LIVE_FAIL_THRESHOLD) {
+        // Try RPC next.
+        if (window.SolanaApi && window.OreDecode) {
+          safeLog('promoting to RPC fallback');
+          setSource('rpc');
+          tickRpc();
+        } else {
+          safeLog('SolanaApi/OreDecode unavailable; dropping to simulation');
+          if (pollState.source !== 'simulated') simInit();
           setSource('simulated');
+          tickSim();
         }
+      }
+    });
+  }
+
+  function tickRpc() {
+    fetchRpcOnce().then(function (data) {
+      pollState.rpcFailures = 0;
+      setSource('rpc');
+      emit(data);
+    }).catch(function (err) {
+      pollState.rpcFailures++;
+      safeLog('rpc fetch failed (' + pollState.rpcFailures + '): ' + (err && err.message || err));
+      if (pollState.rpcFailures >= RPC_FAIL_THRESHOLD) {
+        if (pollState.source !== 'simulated') simInit();
+        setSource('simulated');
         tickSim();
       }
     });
@@ -222,6 +299,8 @@
   function tick() {
     if (pollState.source === 'simulated') {
       tickSim();
+    } else if (pollState.source === 'rpc') {
+      tickRpc();
     } else {
       tickLive();
     }
@@ -230,12 +309,13 @@
   function startPolling(handlers) {
     pollState.handlers = handlers || {};
     pollState.lastRound = -1;
-    pollState.consecutiveFailures = 0;
+    pollState.liveFailures = 0;
+    pollState.rpcFailures = 0;
     pollState.source = null;
-    // Pre-initialize sim in case live fails immediately so we have valid data.
+    // Pre-init sim as the safety net.
     simInit();
-    safeLog('startPolling — attempting live first (' + API_BASE + '/grid)');
-    tick(); // immediate
+    safeLog('startPolling — try live -> rpc -> simulation');
+    tick();
     if (pollState.timer) clearInterval(pollState.timer);
     pollState.timer = setInterval(tick, POLL_INTERVAL_MS);
   }
@@ -246,18 +326,28 @@
   }
 
   function getSource() { return pollState.source; }
+  function getLastGrid() { return pollState.lastGrid ? pollState.lastGrid.slice() : new Array(25).fill(0); }
+  function getLastTimer() { return pollState.lastTimer; }
 
-  // Force-sim mode for testing
   function forceSimulated() {
     simInit();
     setSource('simulated');
     safeLog('forced simulated mode');
   }
 
+  function forceRpc() {
+    setSource('rpc');
+    safeLog('forced rpc mode');
+  }
+
   window.OreClient = {
     startPolling: startPolling,
     stopPolling: stopPolling,
     getSource: getSource,
-    forceSimulated: forceSimulated
+    getLastGrid: getLastGrid,
+    getLastTimer: getLastTimer,
+    getHistory: getHistory,
+    forceSimulated: forceSimulated,
+    forceRpc: forceRpc
   };
 })();
