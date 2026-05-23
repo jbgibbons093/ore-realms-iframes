@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HUD — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css?v=2">
+<link rel="stylesheet" href="css/hud.css?v=4">
 <style>
   /* HUD is overlay-style: transparent body, fixed compact bar. */
   body { background: transparent; }
@@ -13,7 +13,7 @@
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
-    min-width: 860px;
+    min-width: 920px;
   }
   .hud-bar {
     height: 50px;
@@ -90,6 +90,43 @@
     letter-spacing: 0;
   }
   .wallet-cell .addr.connected { color: var(--accent-green); }
+
+  /* Mute toggle button — sits at the right edge of the HUD. */
+  .mute-cell {
+    min-width: 48px;
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mute-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 4px;
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    color: var(--accent-orange);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    padding: 0;
+    font-family: var(--font-display);
+  }
+  .mute-btn:hover {
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 8px rgba(255,140,66,0.45);
+  }
+  .mute-btn.muted {
+    color: var(--text-faint);
+    border-color: #2a221c;
+  }
+  .mute-btn.muted:hover {
+    color: var(--accent-orange);
+  }
 </style>
 </head>
 <body>
@@ -139,15 +176,21 @@
         <span class="status-text" id="hud-status">offline</span>
       </div>
     </div>
+
+    <div class="hud-cell mute-cell">
+      <div class="hud-label">Sound</div>
+      <button class="mute-btn" id="hud-mute" type="button" title="Toggle sound" aria-label="Toggle sound"></button>
+    </div>
   </div>
 </div>
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js?v=2"></script>
-<script src="js/ore-decode.js?v=2"></script>
-<script src="js/solana.js?v=2"></script>
-<script src="js/ore-client.js?v=2"></script>
+<script src="js/portals-bridge.js?v=4"></script>
+<script src="js/ore-decode.js?v=4"></script>
+<script src="js/solana.js?v=4"></script>
+<script src="js/ore-client.js?v=4"></script>
+<script src="js/sfx.js?v=4"></script>
 <script>
   if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
 
@@ -160,6 +203,34 @@
   var elDot    = document.getElementById('hud-dot');
   var elStatus = document.getElementById('hud-status');
   var elMini   = document.getElementById('hud-mini');
+  var elMute   = document.getElementById('hud-mute');
+
+  // --- Mute toggle wiring ---
+  // Plain ASCII-safe glyphs that render in any font (Portals sandbox can be
+  // picky about emoji). "♪" is in basic Unicode and renders everywhere; for
+  // muted state we draw "OFF" in small caps.
+  function syncMuteIcon() {
+    if (!window.SFX) return;
+    if (SFX.muted) {
+      elMute.classList.add('muted');
+      elMute.innerHTML = '<span style="font-size:9px;letter-spacing:0.05em">OFF</span>';
+      elMute.title = 'Sound muted, click to unmute';
+    } else {
+      elMute.classList.remove('muted');
+      elMute.innerHTML = '<span style="font-size:18px;line-height:1">&#9835;</span>';
+      elMute.title = 'Sound on, click to mute';
+    }
+  }
+  elMute.addEventListener('click', function () {
+    if (!window.SFX) return;
+    var nowMuted = SFX.toggleMuted();
+    syncMuteIcon();
+    // Audible feedback: a tiny ding when we un-mute, so the user hears it work.
+    if (!nowMuted) {
+      try { SFX.resume(); SFX.coinDing(); } catch (e) { /* ignore */ }
+    }
+  });
+  syncMuteIcon();
 
   // Build 25 mini cells + 1 blank
   var miniCells = [];

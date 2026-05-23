@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>News Ticker — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css?v=4">
+<style>
+  /* Ticker is meant to be docked at the bottom of the viewport as an
+     overlay, so the body stays transparent by default. The wrapper is
+     fixed to the bottom and spans the full width. */
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  body.solid-bg { background: var(--bg-obsidian); }
+
+  .ticker-wrap {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 32px;
+    background: linear-gradient(180deg, rgba(20,16,13,0.85), rgba(12,10,8,0.95));
+    border-top: 1px solid var(--accent-orange-dim);
+    box-shadow: 0 -4px 14px rgba(255,140,66,0.18);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .ticker-label {
+    flex: 0 0 auto;
+    padding: 0 14px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    background: var(--accent-orange);
+    color: #1a0e06;
+    font-family: var(--font-display);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    box-shadow: 0 0 14px rgba(255,140,66,0.7);
+    z-index: 2;
+  }
+  .ticker-label .dot {
+    width: 7px;
+    height: 7px;
+    background: #1a0e06;
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: dot-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes dot-pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%     { opacity: 0.3; transform: scale(0.6); }
+  }
+
+  .ticker-track {
+    flex: 1 1 auto;
+    overflow: hidden;
+    position: relative;
+    height: 100%;
+  }
+
+  .ticker-content {
+    position: absolute;
+    top: 0;
+    left: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+    will-change: transform;
+    animation: ticker-scroll linear infinite;
+  }
+  .ticker-content .item {
+    padding: 0 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ticker-content .item .sep {
+    color: var(--accent-orange-dim);
+    margin: 0 4px;
+  }
+  .ticker-content .item .round {
+    color: var(--accent-orange);
+    font-family: var(--font-display);
+    font-size: 12px;
+  }
+  .ticker-content .item .cell {
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    font-family: var(--font-display);
+    font-size: 13px;
+  }
+  .ticker-content .item .amt {
+    color: var(--accent-orange);
+    font-family: var(--font-display);
+  }
+  .ticker-content .item.mother {
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+  }
+  .ticker-content .item.mother .badge {
+    background: var(--accent-gold);
+    color: #1a0e06;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    margin-right: 4px;
+  }
+
+  /* Scroll right-to-left across the visible track. The translateX percent
+     refers to the .ticker-content's own width, so 100% means the content
+     has fully left the viewport on the right. Duration is set inline by
+     JS based on the content's pixel width so scroll speed is roughly
+     constant regardless of how many items. */
+  @keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-100%); }
+  }
+
+  .ticker-empty {
+    padding: 0 24px;
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+<div class="ticker-wrap">
+  <div class="ticker-label"><span class="dot"></span>LIVE</div>
+  <div class="ticker-track">
+    <div class="ticker-content" id="ticker"></div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js?v=4"></script>
+<script src="js/ore-decode.js?v=4"></script>
+<script src="js/solana.js?v=4"></script>
+<script src="js/ore-client.js?v=4"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var elTicker = document.getElementById('ticker');
+
+  // Pixels per second for the scroll. The track duration is computed from
+  // the content's measured width so the visual speed stays constant.
+  var SCROLL_PX_PER_SEC = 80;
+
+  function fmtSol(v) {
+    if (v == null || !isFinite(v)) return '—';
+    if (v >= 10) return v.toFixed(1) + ' SOL';
+    return v.toFixed(2) + ' SOL';
+  }
+
+  function buildItem(r) {
+    var motherCls = r.motherlode ? 'item mother' : 'item';
+    var badge = r.motherlode ? '<span class="badge">MOTHERLODE</span>' : '';
+    var payout = (r.pool != null) ? fmtSol(r.pool) : '—';
+    var winner = (r.winner != null) ? r.winner : '?';
+    var round  = (r.round != null) ? r.round : '?';
+    return '<div class="' + motherCls + '">' +
+      badge +
+      '<span class="round">Round ' + round + '</span>' +
+      '<span class="sep">·</span>' +
+      '<span>winner</span>' +
+      '<span class="cell">Cell ' + winner + '</span>' +
+      '<span class="sep">·</span>' +
+      '<span class="amt">' + payout + '</span>' +
+      '<span>paid out</span>' +
+    '</div>';
+  }
+
+  function buildPlaceholder() {
+    return '<div class="ticker-empty">Awaiting first round result — ORE REALMS feed is warming up…</div>';
+  }
+
+  function render(rounds) {
+    if (!rounds || rounds.length === 0) {
+      elTicker.innerHTML = buildPlaceholder();
+      // Don't animate the placeholder.
+      elTicker.style.animation = 'none';
+      elTicker.style.transform = 'translateX(0)';
+      elTicker.style.position = 'static';
+      return;
+    }
+    // Newest first; show up to 10 items, then loop them twice so the scroll
+    // feels continuous even if there are only a couple rounds.
+    var recent = rounds.slice().reverse().slice(0, 10);
+    var html = '';
+    var loops = recent.length < 4 ? 3 : 2;
+    for (var k = 0; k < loops; k++) {
+      for (var i = 0; i < recent.length; i++) {
+        html += buildItem(recent[i]);
+      }
+    }
+    elTicker.innerHTML = html;
+    elTicker.style.position = 'absolute';
+
+    // Measure and set animation duration proportional to content width.
+    // We do this on the next frame so the browser has laid out the items.
+    requestAnimationFrame(function () {
+      var w = elTicker.scrollWidth || elTicker.offsetWidth || 800;
+      var trackWidth = elTicker.parentNode.offsetWidth || window.innerWidth || 800;
+      var totalDistance = w + trackWidth; // off-right to off-left
+      var dur = Math.max(8, totalDistance / SCROLL_PX_PER_SEC);
+      elTicker.style.animation = 'none';
+      // Force reflow to restart animation cleanly
+      // eslint-disable-next-line no-unused-expressions
+      elTicker.offsetWidth;
+      elTicker.style.animation = 'ticker-scroll ' + dur.toFixed(1) + 's linear infinite';
+    });
+  }
+
+  function pullAndRender() {
+    var hist = (window.OreClient && OreClient.getHistory)
+      ? OreClient.getHistory()
+      : { rounds: [], motherlodes: [] };
+    render(hist.rounds);
+  }
+
+  // Start the OreClient so history fills up.
+  OreClient.startPolling({
+    onGrid: function () { /* no-op; ticker only needs round history */ },
+    onSource: function (s) { PortalsBridge.debugLog('ticker source: ' + s); }
+  });
+
+  // Re-render every 5 seconds + immediately on history update.
+  pullAndRender();
+  setInterval(pullAndRender, 5000);
+  window.addEventListener('ore:history', pullAndRender);
+
+  // Pause animation on hover so users can read items.
+  var wrap = document.querySelector('.ticker-wrap');
+  wrap.addEventListener('mouseenter', function () { elTicker.style.animationPlayState = 'paused'; });
+  wrap.addEventListener('mouseleave', function () { elTicker.style.animationPlayState = 'running'; });
+</script>
+</body>
+</html>

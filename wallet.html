@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wallet — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css?v=2">
+<link rel="stylesheet" href="css/hud.css?v=4">
 <style>
   body { background: transparent; }
   body.solid-bg { background: var(--bg-obsidian); padding: 20px; }
@@ -168,10 +168,11 @@
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js?v=2"></script>
-<script src="js/ore-decode.js?v=2"></script>
-<script src="js/solana.js?v=2"></script>
-<script src="js/ore-client.js?v=2"></script>
+<script src="js/portals-bridge.js?v=4"></script>
+<script src="js/ore-decode.js?v=4"></script>
+<script src="js/solana.js?v=4"></script>
+<script src="js/ore-client.js?v=4"></script>
+<script src="js/sfx.js?v=4"></script>
 <script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
 <script>
   if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
@@ -364,6 +365,7 @@
     var amount = parseFloat(elAmt.value);
     if (!cellIdx || cellIdx < 1 || cellIdx > 25) { alert('Pick a cell 1-25'); return; }
     if (!amount || amount <= 0) { alert('Enter a SOL amount > 0'); return; }
+    try { if (window.SFX) SFX.coinDing(); } catch (e) { /* ignore */ }
 
     // Tell Portals so the in-world avatar lights up.
     PortalsBridge.activateTask('Deploy_Made_' + cellIdx);
@@ -401,6 +403,9 @@
       fetchBalances();
     }
     updatePreview();
+    // Soft kiosk-open chord on iframe load (autoplay policy may delay it
+    // until first user gesture; SFX module handles that case).
+    try { if (window.SFX) SFX.kioskOpen(); } catch (e) { /* ignore */ }
   });
 
   updatePreview();

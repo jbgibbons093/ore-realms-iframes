@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Round Result — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css?v=2">
+<link rel="stylesheet" href="css/hud.css?v=4">
 <style>
   body { background: transparent; }
   body.solid-bg { background: var(--bg-obsidian); }
@@ -86,6 +86,46 @@
   }
   .dismiss .countdown { color: var(--accent-orange); font-family: var(--font-display); font-size: 14px; }
 
+  .actions-row {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .actions-row .btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .actions-row .btn.solscan {
+    background: rgba(255,210,74,0.15);
+    border: 1px solid var(--accent-gold);
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    text-decoration: none;
+    border-radius: 4px;
+    font-family: var(--font-display);
+    cursor: pointer;
+    display: inline-block;
+  }
+  .actions-row .btn.solscan:hover {
+    background: rgba(255,210,74,0.3);
+    box-shadow: 0 0 12px rgba(255,210,74,0.5);
+  }
+  .actions-row .btn.dismiss-btn {
+    background: transparent;
+    border: 1px solid var(--accent-orange-dim);
+    color: var(--accent-orange);
+    border-radius: 4px;
+    font-family: var(--font-display);
+    cursor: pointer;
+  }
+  .actions-row .btn.dismiss-btn:hover {
+    background: rgba(255,140,66,0.15);
+  }
+
   /* MOTHERLODE mode */
   .card.motherlode {
     border-color: var(--accent-gold);
@@ -130,13 +170,18 @@
     <div class="winner-cell" id="r-cell">--</div>
     <div class="payout">Payout: <span class="val" id="r-payout">—</span></div>
     <div class="pool">Total pool: <span id="r-pool">—</span> SOL</div>
-    <div class="dismiss">Dismissing in <span class="countdown" id="r-count">8</span>s</div>
+    <div class="actions-row">
+      <a class="btn solscan" id="r-solscan" target="_blank" rel="noopener">View on Solscan →</a>
+      <button class="btn dismiss-btn" id="r-dismiss-btn" type="button">Dismiss</button>
+    </div>
+    <div class="dismiss">Auto-dismissing in <span class="countdown" id="r-count">8</span>s</div>
   </div>
 </div>
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js?v=2"></script>
+<script src="js/portals-bridge.js?v=4"></script>
+<script src="js/sfx.js?v=4"></script>
 <script>
   if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
   if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
@@ -145,6 +190,9 @@
   var params = new URLSearchParams(location.search);
   var winnerCell = parseInt(params.get('winner') || '0', 10);
   var motherlode = params.get('motherlode') === '1';
+  // Tx signature can be passed as ?txid=<base58 sig> for the Solscan link.
+  // If omitted, the button falls back to the program account page.
+  var txid = params.get('txid') || params.get('tx') || '';
 
   var elTitle  = document.getElementById('r-title');
   var elCell   = document.getElementById('r-cell');
@@ -153,6 +201,8 @@
   var elCount  = document.getElementById('r-count');
   var elCard   = document.getElementById('card');
   var elConf   = document.getElementById('conf');
+  var elSolscan = document.getElementById('r-solscan');
+  var elDismissBtn = document.getElementById('r-dismiss-btn');
 
   if (winnerCell >= 1 && winnerCell <= 25) {
     elCell.textContent = winnerCell;
@@ -181,11 +231,46 @@
       setTimeout(function (el) { return function () { try { el.remove(); } catch (e) {} }; }(p), 5500);
     }
   }
-  spawnConfetti(motherlode ? 240 : 100);
+  spawnConfetti(motherlode ? 320 : 100);
   if (motherlode) {
-    setTimeout(function () { spawnConfetti(100); }, 800);
-    setTimeout(function () { spawnConfetti(100); }, 1600);
+    // Motherlode confetti boost — extra waves with bigger and longer pieces.
+    setTimeout(function () { spawnConfetti(140); }, 500);
+    setTimeout(function () { spawnConfetti(140); }, 1000);
+    setTimeout(function () { spawnConfetti(120); }, 1600);
+    setTimeout(function () { spawnConfetti(100); }, 2400);
   }
+
+  // SFX — fire on load. AudioContext may require user gesture first; SFX
+  // module handles that case silently.
+  try {
+    if (window.SFX) {
+      if (motherlode) SFX.motherlodeBang();
+      else SFX.winFanfare();
+    }
+  } catch (e) { /* ignore */ }
+
+  // --- Solscan link ---
+  // If we have a tx signature, link to the tx page; otherwise fall back to
+  // the ORE program account (which always exists). Mainnet by default.
+  var ORE_PROGRAM = 'oreV2ZymfyeXgNgBdqMkumTqqAprVqgBWQfoYkrtKWQ';
+  var solscanUrl = txid
+    ? ('https://solscan.io/tx/' + encodeURIComponent(txid))
+    : ('https://solscan.io/account/' + ORE_PROGRAM);
+  elSolscan.href = solscanUrl;
+  elSolscan.title = txid ? ('Transaction ' + txid) : 'ORE program account';
+
+  // Manual dismiss — declared here, wired below after `iv` is created.
+  var iv = null;
+  function manualDismiss() {
+    if (iv) { clearInterval(iv); iv = null; }
+    PortalsBridge.completeTask('gameover_ready');
+    PortalsBridge.activateTask('Gameover_Dismiss');
+    PortalsBridge.sendRaw({ type: 'gameover_dismissed', reason: 'manual' });
+    elCard.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+    elCard.style.opacity = '0';
+    elCard.style.transform = 'scale(0.9)';
+  }
+  elDismissBtn.addEventListener('click', manualDismiss);
 
   // Tell Portals we're ready
   PortalsBridge.activateTask('gameover_ready');
@@ -204,13 +289,14 @@
   // Auto-dismiss
   var remaining = 8;
   elCount.textContent = remaining;
-  var iv = setInterval(function () {
+  iv = setInterval(function () {
     remaining--;
     if (remaining <= 0) {
       clearInterval(iv);
+      iv = null;
       PortalsBridge.completeTask('gameover_ready');
       PortalsBridge.activateTask('Gameover_Dismiss');
-      PortalsBridge.sendRaw({ type: 'gameover_dismissed' });
+      PortalsBridge.sendRaw({ type: 'gameover_dismissed', reason: 'timeout' });
       elCard.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
       elCard.style.opacity = '0';
       elCard.style.transform = 'scale(0.9)';
