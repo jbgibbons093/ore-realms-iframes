@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ORE REALMS — Iframe Gallery</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body.solid-bg {
+    overflow: auto;
+    padding: 32px 24px;
+  }
+  .container {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: 38px;
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    letter-spacing: 0.1em;
+    margin: 0 0 6px 0;
+    text-transform: uppercase;
+  }
+  .sub {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 14px 16px;
+    transition: all 0.15s ease;
+  }
+  .card:hover {
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 14px rgba(255,140,66,0.25);
+    transform: translateY(-2px);
+  }
+  .card h2 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    margin: 0 0 4px 0;
+    color: var(--accent-orange);
+    letter-spacing: 0.06em;
+  }
+  .card p {
+    margin: 0 0 12px 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .card .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .card a.btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  footer {
+    margin-top: 36px;
+    color: var(--text-faint);
+    font-size: 11px;
+    text-align: center;
+  }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(255,140,66,0.12);
+    color: var(--accent-orange);
+    border: 1px solid var(--accent-orange-dim);
+    border-radius: 10px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body class="solid-bg">
+<div class="container">
+  <h1>ORE REALMS<span class="pill">iframe gallery</span></h1>
+  <div class="sub">Static test pages for every overlay shipped to Portals. Click an iframe to open standalone. Append <code>?debug=1</code> to surface the message log.</div>
+
+  <div class="grid" id="cards"></div>
+
+  <footer>
+    Build version: <span id="ver">…</span> &middot; Portals room <code>0d159a74-145a-4687-980c-7b2b4cfdd4dd</code>
+  </footer>
+</div>
+
+<script>
+  var IFRAMES = [
+    { file: 'hud.html',          name: 'HUD',           desc: 'Top-bar status: round, timer, total SOL, dust, connection.' },
+    { file: 'grid.html',         name: 'Grid Monument', desc: 'Live 5x5 board. Drives round-reveal tasks back to Portals.' },
+    { file: 'wallet.html',       name: 'Wallet / Deploy', desc: 'Phantom / Backpack connect, deploy SOL handoff to ore.supply.' },
+    { file: 'vault.html',        name: 'Vault / Bank',  desc: 'Wallet balances, unclaimed ORE / SOL, claim CTAs.' },
+    { file: 'bet.html',          name: 'Watch-Tower Bet', desc: 'Pick a cell and wager Dust. Sends Bet_Cell_N task.' },
+    { file: 'gameover.html?winner=17', name: 'Game Over Card', desc: 'Round-end winner reveal + confetti. Auto-dismiss 8s.' },
+    { file: 'arm-wrestle.html',  name: 'Arm Wrestle',   desc: 'Spam-click vs NPC in the Saloon. 5s window.' }
+  ];
+
+  var cards = document.getElementById('cards');
+  IFRAMES.forEach(function (it) {
+    var d = document.createElement('div');
+    d.className = 'card';
+    d.innerHTML =
+      '<h2>' + it.name + '</h2>' +
+      '<p>' + it.desc + '</p>' +
+      '<div class="row">' +
+      '  <a class="btn" href="' + it.file + '" target="_blank" rel="noopener">Open</a>' +
+      '  <a class="btn ghost" href="' + it.file + (it.file.indexOf('?') > -1 ? '&' : '?') + 'debug=1" target="_blank" rel="noopener">Open + debug</a>' +
+      '</div>';
+    cards.appendChild(d);
+  });
+
+  fetch('VERSION').then(function(r){ return r.text(); }).then(function(t){
+    document.getElementById('ver').textContent = (t || '?').trim();
+  }).catch(function(){ document.getElementById('ver').textContent = '?'; });
+</script>
+</body>
+</html>

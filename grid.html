@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grid Monument — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body { background: transparent; }
+  body.solid-bg { background: var(--bg-obsidian); padding: 14px; overflow: auto; }
+
+  .wrap {
+    width: 100%;
+    max-width: 540px;
+    margin: 0 auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 14px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .top .title {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 16px;
+    letter-spacing: 0.1em;
+  }
+  .top .meta {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+  }
+  .top .meta strong { color: var(--accent-orange); }
+
+  .timer-row { margin-bottom: 10px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+
+  .cell {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: #14100d;
+    border: 1px solid #2a221c;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: box-shadow 0.4s ease, background 0.4s ease, border-color 0.4s ease;
+  }
+  .cell .idx {
+    position: absolute;
+    top: 3px;
+    left: 5px;
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+  }
+  .cell .sol {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+  }
+  .cell .lbl {
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .cell.empty .sol { color: var(--text-faint); text-shadow: none; }
+
+  .cell.winner {
+    background: radial-gradient(circle at center, rgba(255,210,74,0.6), rgba(255,140,66,0.2) 70%, transparent);
+    border-color: var(--accent-gold);
+    animation: winner-pulse 0.9s ease-in-out infinite;
+  }
+  .cell.winner .sol { color: var(--accent-gold); text-shadow: var(--glow-gold); }
+  @keyframes winner-pulse {
+    0%,100% { box-shadow: 0 0 14px var(--accent-gold), 0 0 26px rgba(255,210,74,0.4); }
+    50%     { box-shadow: 0 0 26px var(--accent-gold), 0 0 50px rgba(255,210,74,0.7); }
+  }
+
+  .cell.motherlode {
+    animation: motherlode-pulse 0.8s linear infinite;
+    border-color: var(--accent-gold);
+  }
+  .cell.motherlode .sol { color: white; }
+  @keyframes motherlode-pulse {
+    0%   { background: #ff3a3a; }
+    20%  { background: #ff8c42; }
+    40%  { background: #ffd24a; }
+    60%  { background: #4aff8a; }
+    80%  { background: #42a8ff; }
+    100% { background: #b347ff; }
+  }
+
+  .legend {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+  }
+  .legend .src .status-dot { vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="title">GRID MONUMENT</div>
+    <div class="meta">Round <strong id="g-round">—</strong> &middot; <strong id="g-timer">--:--</strong></div>
+  </div>
+
+  <div class="timer-row">
+    <div class="timer-bar"><div class="timer-bar-fill" id="g-bar" style="width:0%"></div></div>
+  </div>
+
+  <div class="grid" id="g-grid"></div>
+
+  <div class="legend">
+    <div>Total SOL: <strong class="text-orange" id="g-total">0.00</strong></div>
+    <div class="src">
+      <span class="status-dot offline" id="g-dot"></span>
+      <span id="g-src">offline</span>
+    </div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script src="js/ore-client.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var ROUND_LENGTH = 60;
+
+  // Build 25 cells
+  var gridEl = document.getElementById('g-grid');
+  var cellEls = [];
+  for (var i = 0; i < 25; i++) {
+    var c = document.createElement('div');
+    c.className = 'cell empty';
+    c.dataset.idx = String(i);
+    c.innerHTML =
+      '<div class="idx">' + (i + 1) + '</div>' +
+      '<div class="sol">0.00</div>' +
+      '<div class="lbl">SOL</div>';
+    gridEl.appendChild(c);
+    cellEls.push(c);
+  }
+
+  var elRound = document.getElementById('g-round');
+  var elTimer = document.getElementById('g-timer');
+  var elBar   = document.getElementById('g-bar');
+  var elTotal = document.getElementById('g-total');
+  var elSrc   = document.getElementById('g-src');
+  var elDot   = document.getElementById('g-dot');
+
+  var state = {
+    round: null,
+    winnerCell: null,    // 1..25
+    motherlode: false,
+    lastReportedRound: -1,
+    lastReportedWinner: -1
+  };
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function updateGrid(values) {
+    // values is 25 numbers
+    var total = 0;
+    var max = 0;
+    for (var i = 0; i < values.length; i++) { total += values[i]; if (values[i] > max) max = values[i]; }
+    for (var i = 0; i < 25; i++) {
+      var v = values[i] || 0;
+      var sol = cellEls[i].querySelector('.sol');
+      sol.textContent = v.toFixed(2);
+      cellEls[i].classList.toggle('empty', v < 0.001);
+      // Glow proportional to its share of the max
+      var intensity = max > 0 ? (v / max) : 0;
+      var glow = Math.round(intensity * 22);
+      cellEls[i].style.boxShadow = intensity > 0.05
+        ? '0 0 ' + glow + 'px rgba(255,140,66,' + (0.3 + intensity * 0.6).toFixed(2) + ')'
+        : 'none';
+    }
+    elTotal.textContent = total.toFixed(2);
+  }
+
+  function applyWinnerStyling() {
+    cellEls.forEach(function (c, i) {
+      c.classList.remove('winner', 'motherlode');
+      if (state.winnerCell && (i + 1) === state.winnerCell) {
+        if (state.motherlode) c.classList.add('motherlode');
+        else c.classList.add('winner');
+      }
+    });
+  }
+
+  function resetVisualForNewRound() {
+    state.winnerCell = null;
+    state.motherlode = false;
+    cellEls.forEach(function (c) { c.classList.remove('winner', 'motherlode'); c.style.boxShadow = 'none'; });
+  }
+
+  function setSource(src) {
+    elSrc.textContent = src || 'offline';
+    elDot.className = 'status-dot ' +
+      (src === 'live' ? 'connected' : src === 'simulated' ? 'simulated' : 'offline');
+  }
+
+  // -------- ORE client wiring --------
+  OreClient.startPolling({
+    onGrid: function (cells) {
+      updateGrid(cells);
+    },
+    onRound: function (n) {
+      // New round transition: reset visuals + tell Portals to reset cubes.
+      if (state.lastReportedRound !== -1 && n !== state.lastReportedRound) {
+        resetVisualForNewRound();
+        PortalsBridge.activateTask('Round_Reset');
+        PortalsBridge.debugLog('round transition ' + state.lastReportedRound + ' -> ' + n + ' (sent Round_Reset)');
+      }
+      state.lastReportedRound = n;
+      state.round = n;
+      elRound.textContent = '#' + n;
+    },
+    onTimer: function (sec) {
+      elTimer.textContent = fmtTime(sec);
+      var pct = Math.max(0, Math.min(100, (sec / ROUND_LENGTH) * 100));
+      elBar.style.width = pct + '%';
+      elBar.classList.toggle('urgent', sec <= 10 && sec > 0);
+    },
+    onWinner: function (idx, motherlode) {
+      // idx is 1..25 from OreClient.
+      // De-dupe: if we already fired for this round + winner, skip.
+      var sig = (state.round || 0) * 100 + idx;
+      if (state.lastReportedWinner === sig) return;
+      state.lastReportedWinner = sig;
+
+      state.winnerCell = idx;
+      state.motherlode = !!motherlode;
+      applyWinnerStyling();
+
+      var taskName = 'Round_Reveal_Cell_' + idx;
+      PortalsBridge.activateTask(taskName);
+      if (motherlode) PortalsBridge.activateTask('Motherlode_Burst');
+      PortalsBridge.debugLog('winner ' + idx + (motherlode ? ' MOTHERLODE' : '') + ' -> activated ' + taskName);
+    },
+    onSource: setSource
+  });
+
+  // Listen for any direct grid pushes from Portals as well.
+  PortalsBridge.onMessage(function (m) {
+    if (m.type === 'grid' && m.payload && m.payload.length >= 25) {
+      // payload is already numeric thanks to parser
+      var values = m.payload.slice(0, 25).map(function (v) { return Number(v) || 0; });
+      updateGrid(values);
+    }
+    if (m.type === 'winner' && m.payload && m.payload[0] != null) {
+      var idx = Number(m.payload[0]);
+      var ml = (m.payload[1] != null) ? !!Number(m.payload[1]) : false;
+      state.winnerCell = idx;
+      state.motherlode = ml;
+      applyWinnerStyling();
+    }
+    if (m.type === 'motherlode' && m.payload && m.payload[0]) {
+      state.motherlode = !!Number(m.payload[0]);
+      applyWinnerStyling();
+    }
+    if (m.type === 'round' && m.payload && m.payload[0]) {
+      elRound.textContent = '#' + Number(m.payload[0]);
+    }
+  });
+</script>
+</body>
+</html>

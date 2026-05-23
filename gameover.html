@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Round Result — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body { background: transparent; }
+  body.solid-bg { background: var(--bg-obsidian); }
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .card {
+    background: var(--bg-panel);
+    border: 2px solid var(--accent-gold);
+    border-radius: 10px;
+    padding: 28px 36px;
+    text-align: center;
+    box-shadow: var(--glow-gold), 0 8px 32px rgba(0,0,0,0.6);
+    pointer-events: auto;
+    max-width: 460px;
+    animation: card-in 0.5s cubic-bezier(.18,.89,.32,1.28);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  @keyframes card-in {
+    from { transform: scale(0.4) translateY(40px); opacity: 0; }
+    to   { transform: scale(1) translateY(0); opacity: 1; }
+  }
+  .ribbon {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  h1 {
+    font-family: var(--font-display);
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    font-size: 42px;
+    margin: 0 0 10px 0;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .winner-cell {
+    font-family: var(--font-display);
+    font-size: 80px;
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    line-height: 1;
+    margin: 12px 0 14px 0;
+  }
+  .payout {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--text-primary);
+    margin: 8px 0 4px 0;
+  }
+  .payout .val {
+    font-family: var(--font-display);
+    font-size: 24px;
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    margin-left: 4px;
+  }
+  .pool {
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+  }
+  .dismiss {
+    margin-top: 20px;
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 0.08em;
+  }
+  .dismiss .countdown { color: var(--accent-orange); font-family: var(--font-display); font-size: 14px; }
+
+  /* MOTHERLODE mode */
+  .card.motherlode {
+    border-color: var(--accent-gold);
+    animation: card-in 0.5s cubic-bezier(.18,.89,.32,1.28), motherlode-glow 1s linear infinite;
+  }
+  @keyframes motherlode-glow {
+    0%,100% { box-shadow: 0 0 30px #ff3a3a, 0 0 60px rgba(255,140,66,0.5); }
+    25%     { box-shadow: 0 0 30px #ff8c42, 0 0 60px rgba(255,210,74,0.7); }
+    50%     { box-shadow: 0 0 30px #ffd24a, 0 0 60px rgba(74,255,138,0.5); }
+    75%     { box-shadow: 0 0 30px #b347ff, 0 0 60px rgba(255,58,58,0.6); }
+  }
+
+  /* CONFETTI */
+  .confetti {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .conf-piece {
+    position: absolute;
+    width: 8px;
+    height: 14px;
+    top: -20px;
+    opacity: 0.95;
+    transform-origin: center;
+    animation: conf-fall linear forwards;
+  }
+  @keyframes conf-fall {
+    0%   { transform: translateY(0) rotate(0deg); }
+    100% { transform: translateY(110vh) rotate(720deg); }
+  }
+</style>
+</head>
+<body>
+<div class="confetti" id="conf"></div>
+
+<div class="stage">
+  <div class="card" id="card">
+    <div class="ribbon">Round Complete</div>
+    <h1 id="r-title">Winner</h1>
+    <div class="winner-cell" id="r-cell">--</div>
+    <div class="payout">Payout: <span class="val" id="r-payout">—</span></div>
+    <div class="pool">Total pool: <span id="r-pool">—</span> SOL</div>
+    <div class="dismiss">Dismissing in <span class="countdown" id="r-count">8</span>s</div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  // --- Parse winner from URL ---
+  var params = new URLSearchParams(location.search);
+  var winnerCell = parseInt(params.get('winner') || '0', 10);
+  var motherlode = params.get('motherlode') === '1';
+
+  var elTitle  = document.getElementById('r-title');
+  var elCell   = document.getElementById('r-cell');
+  var elPayout = document.getElementById('r-payout');
+  var elPool   = document.getElementById('r-pool');
+  var elCount  = document.getElementById('r-count');
+  var elCard   = document.getElementById('card');
+  var elConf   = document.getElementById('conf');
+
+  if (winnerCell >= 1 && winnerCell <= 25) {
+    elCell.textContent = winnerCell;
+  } else {
+    elCell.textContent = '?';
+  }
+
+  if (motherlode) {
+    elTitle.textContent = 'MOTHERLODE!';
+    elCard.classList.add('motherlode');
+  }
+
+  // Confetti
+  var COLORS = ['#ff8c42', '#ffd24a', '#ff3a3a', '#4aff8a', '#42a8ff', '#b347ff'];
+  function spawnConfetti(count) {
+    for (var i = 0; i < count; i++) {
+      var p = document.createElement('div');
+      p.className = 'conf-piece';
+      p.style.left = (Math.random() * 100) + 'vw';
+      p.style.background = COLORS[Math.floor(Math.random() * COLORS.length)];
+      p.style.animationDuration = (2.5 + Math.random() * 2.5) + 's';
+      p.style.animationDelay = (Math.random() * 0.5) + 's';
+      p.style.transform = 'rotate(' + (Math.random() * 360) + 'deg)';
+      elConf.appendChild(p);
+      // Cleanup
+      setTimeout(function (el) { return function () { try { el.remove(); } catch (e) {} }; }(p), 5500);
+    }
+  }
+  spawnConfetti(motherlode ? 240 : 100);
+  if (motherlode) {
+    setTimeout(function () { spawnConfetti(100); }, 800);
+    setTimeout(function () { spawnConfetti(100); }, 1600);
+  }
+
+  // Tell Portals we're ready
+  PortalsBridge.activateTask('gameover_ready');
+  PortalsBridge.sendRaw({ type: 'gameover_ready', winner: winnerCell, motherlode: motherlode });
+
+  // Listen for "scores_<winnerSol>_<totalPool>"
+  PortalsBridge.onMessage(function (m) {
+    if (m.type === 'scores' && m.payload && m.payload.length >= 2) {
+      var winnerSol = Number(m.payload[0]);
+      var totalPool = Number(m.payload[1]);
+      if (isFinite(winnerSol)) elPayout.textContent = winnerSol.toFixed(3) + ' SOL';
+      if (isFinite(totalPool)) elPool.textContent = totalPool.toFixed(3);
+    }
+  });
+
+  // Auto-dismiss
+  var remaining = 8;
+  elCount.textContent = remaining;
+  var iv = setInterval(function () {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(iv);
+      PortalsBridge.completeTask('gameover_ready');
+      PortalsBridge.activateTask('Gameover_Dismiss');
+      PortalsBridge.sendRaw({ type: 'gameover_dismissed' });
+      elCard.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+      elCard.style.opacity = '0';
+      elCard.style.transform = 'scale(0.9)';
+    } else {
+      elCount.textContent = remaining;
+    }
+  }, 1000);
+</script>
+</body>
+</html>

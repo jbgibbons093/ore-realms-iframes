@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wallet — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body { background: transparent; }
+  body.solid-bg { background: var(--bg-obsidian); padding: 20px; }
+  .wrap {
+    max-width: 380px;
+    margin: 14px auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 18px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  h2 {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 20px;
+    margin: 0 0 6px 0;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .sub { color: var(--text-dim); font-size: 11px; margin-bottom: 14px; letter-spacing: 0.06em; }
+  .balances { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .bal {
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 10px;
+  }
+  .bal .lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .bal .val { font-family: var(--font-display); font-size: 18px; color: var(--accent-orange); text-shadow: var(--glow-orange); }
+  .wallet-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .wallet-row .btn { flex: 1; }
+  .deploy-form { border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 8px; }
+  .addr {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    word-break: break-all;
+    margin-bottom: 12px;
+    background: #14100d;
+    padding: 6px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+  }
+  .notice {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: rgba(255,210,74,0.1);
+    border: 1px solid var(--accent-gold);
+    border-radius: 3px;
+    color: var(--accent-gold);
+    font-size: 11px;
+  }
+  .row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Mining Kiosk</h2>
+  <div class="sub">Connect a Solana wallet to deploy SOL on the ORE grid.</div>
+
+  <div id="connect-section">
+    <div class="wallet-row">
+      <button class="btn" id="btn-phantom">Connect Phantom</button>
+      <button class="btn ghost" id="btn-backpack">Backpack</button>
+    </div>
+    <div class="sub muted">No wallet? Install <a href="https://phantom.app" target="_blank" rel="noopener" style="color:var(--accent-orange)">Phantom</a> first.</div>
+  </div>
+
+  <div id="connected-section" class="hidden">
+    <div class="addr" id="w-addr">…</div>
+    <div class="balances">
+      <div class="bal"><div class="lbl">SOL</div><div class="val" id="w-sol">0.000</div></div>
+      <div class="bal"><div class="lbl">ORE</div><div class="val gold" id="w-ore" style="color:var(--accent-gold);text-shadow:var(--glow-gold)">0.000</div></div>
+    </div>
+
+    <div class="deploy-form">
+      <label for="d-cell">Cell (1-25)</label>
+      <select id="d-cell"></select>
+
+      <label for="d-amt">SOL amount</label>
+      <input id="d-amt" type="number" min="0.001" step="0.001" value="0.01">
+
+      <button class="btn gold" id="btn-deploy" style="width:100%;margin-top:12px">Deploy to Cell</button>
+
+      <div class="notice" id="d-notice">
+        MVP: deploy currently opens <strong>ore.supply</strong> in a new tab to finish the transaction.
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <button class="btn ghost" id="btn-disconnect" style="width:100%">Disconnect</button>
+    </div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var ORE_MINT = 'oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp';
+  var ORE_DECIMALS = 11;
+  // Helius public mainnet endpoint (rate-limited but fine for read-only).
+  var RPC_URL = 'https://api.mainnet-beta.solana.com';
+
+  var elConnect    = document.getElementById('connect-section');
+  var elConnected  = document.getElementById('connected-section');
+  var elAddr       = document.getElementById('w-addr');
+  var elSol        = document.getElementById('w-sol');
+  var elOre        = document.getElementById('w-ore');
+  var elCell       = document.getElementById('d-cell');
+  var elAmt        = document.getElementById('d-amt');
+  var elDeploy     = document.getElementById('btn-deploy');
+  var elDisconnect = document.getElementById('btn-disconnect');
+  var elPhantom    = document.getElementById('btn-phantom');
+  var elBackpack   = document.getElementById('btn-backpack');
+
+  // Populate cell dropdown
+  for (var i = 1; i <= 25; i++) {
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = 'Cell ' + i;
+    elCell.appendChild(o);
+  }
+
+  var connection = null;
+  var publicKey  = null;
+  var providerKind = null; // 'phantom' | 'backpack'
+
+  function shorten(s) {
+    if (!s) return '';
+    if (s.length <= 12) return s;
+    return s.slice(0, 4) + '…' + s.slice(-4);
+  }
+
+  function getProvider(kind) {
+    if (kind === 'phantom') {
+      if (window.solana && window.solana.isPhantom) return window.solana;
+      if (window.phantom && window.phantom.solana) return window.phantom.solana;
+    }
+    if (kind === 'backpack') {
+      if (window.backpack && window.backpack.solana) return window.backpack.solana;
+      if (window.xnft && window.xnft.solana) return window.xnft.solana;
+    }
+    return null;
+  }
+
+  function ensureConnection() {
+    if (!connection && window.solanaWeb3 && window.solanaWeb3.Connection) {
+      connection = new window.solanaWeb3.Connection(RPC_URL, 'confirmed');
+    }
+    return connection;
+  }
+
+  async function fetchBalances() {
+    if (!publicKey) return;
+    var conn = ensureConnection();
+    if (!conn) {
+      elSol.textContent = 'n/a';
+      elOre.textContent = 'n/a';
+      return;
+    }
+    var pkObj = new window.solanaWeb3.PublicKey(publicKey);
+
+    try {
+      var lamports = await conn.getBalance(pkObj);
+      elSol.textContent = (lamports / 1e9).toFixed(3);
+    } catch (e) {
+      PortalsBridge.debugLog('SOL balance err: ' + e.message);
+      elSol.textContent = 'err';
+    }
+
+    try {
+      var mintObj = new window.solanaWeb3.PublicKey(ORE_MINT);
+      var resp = await conn.getParsedTokenAccountsByOwner(pkObj, { mint: mintObj });
+      var total = 0;
+      (resp.value || []).forEach(function (acc) {
+        try {
+          var info = acc.account.data.parsed.info.tokenAmount;
+          var ui = info.uiAmount;
+          if (ui == null && info.amount != null) ui = Number(info.amount) / Math.pow(10, ORE_DECIMALS);
+          if (ui) total += ui;
+        } catch (e) { /* ignore */ }
+      });
+      elOre.textContent = total.toFixed(3);
+    } catch (e) {
+      PortalsBridge.debugLog('ORE balance err: ' + e.message);
+      elOre.textContent = 'err';
+    }
+  }
+
+  async function connectWith(kind) {
+    var provider = getProvider(kind);
+    if (!provider) {
+      alert((kind === 'phantom' ? 'Phantom' : 'Backpack') + ' wallet not detected. Install the extension.');
+      return;
+    }
+    try {
+      var resp = await provider.connect();
+      publicKey = (resp && resp.publicKey) ? resp.publicKey.toString() :
+                  (provider.publicKey ? provider.publicKey.toString() : null);
+      providerKind = kind;
+      if (!publicKey) throw new Error('No publicKey returned');
+
+      elAddr.textContent = publicKey;
+      elConnect.classList.add('hidden');
+      elConnected.classList.remove('hidden');
+
+      PortalsBridge.sendRaw({ type: 'wallet_connected', address: publicKey, provider: kind });
+      PortalsBridge.activateTask('Wallet_Connected');
+      PortalsBridge.debugLog('connected ' + kind + ' ' + shorten(publicKey));
+
+      fetchBalances();
+    } catch (e) {
+      PortalsBridge.debugLog('connect err ' + e.message);
+      alert('Wallet connect failed: ' + e.message);
+    }
+  }
+
+  async function disconnect() {
+    var provider = getProvider(providerKind);
+    if (provider && provider.disconnect) {
+      try { await provider.disconnect(); } catch (e) { /* ignore */ }
+    }
+    publicKey = null;
+    providerKind = null;
+    elConnect.classList.remove('hidden');
+    elConnected.classList.add('hidden');
+    PortalsBridge.debugLog('disconnected');
+  }
+
+  elPhantom.addEventListener('click', function () { connectWith('phantom'); });
+  elBackpack.addEventListener('click', function () { connectWith('backpack'); });
+  elDisconnect.addEventListener('click', disconnect);
+
+  elDeploy.addEventListener('click', function () {
+    var cellIdx = parseInt(elCell.value, 10);
+    var amount = parseFloat(elAmt.value);
+    if (!cellIdx || cellIdx < 1 || cellIdx > 25) { alert('Pick a cell 1-25'); return; }
+    if (!amount || amount <= 0) { alert('Enter a SOL amount > 0'); return; }
+
+    // Tell Portals so the in-world avatar lights up.
+    PortalsBridge.activateTask('Deploy_Made_' + cellIdx);
+    PortalsBridge.sendRaw({ type: 'deploy_initiated', cell: cellIdx, sol: amount });
+
+    // MVP handoff to ore.supply
+    var url = 'https://ore.supply';
+    // If a deep link with cell pre-fill becomes available, swap it in here.
+    var win = window.open(url, '_blank', 'noopener');
+    if (!win) {
+      alert('Pop-up blocked. Open ore.supply manually to deploy ' + amount + ' SOL on cell ' + cellIdx + '.');
+    }
+    PortalsBridge.debugLog('deploy ' + amount + ' SOL -> cell ' + cellIdx + ' (handoff to ore.supply)');
+  });
+
+  // Periodic balance refresh
+  setInterval(function () { if (publicKey) fetchBalances(); }, 30000);
+
+  // Auto-connect if the provider remembers us
+  window.addEventListener('load', function () {
+    var p = getProvider('phantom');
+    if (p && p.isConnected && p.publicKey) {
+      publicKey = p.publicKey.toString();
+      providerKind = 'phantom';
+      elAddr.textContent = publicKey;
+      elConnect.classList.add('hidden');
+      elConnected.classList.remove('hidden');
+      fetchBalances();
+    }
+  });
+</script>
+</body>
+</html>

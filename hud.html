@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HUD — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  /* HUD is overlay-style: transparent body, fixed compact bar. */
+  body { background: transparent; }
+  .hud-wrap {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 720px;
+  }
+  .brand {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 18px;
+    letter-spacing: 0.12em;
+    padding: 0 16px;
+    border-right: 1px solid var(--border-color);
+    height: 100%;
+    display: flex;
+    align-items: center;
+  }
+  .conn-cell {
+    min-width: 80px;
+    align-items: center;
+  }
+  .conn-cell .conn-row {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .conn-cell .status-text {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="hud-wrap">
+  <div class="hud-bar">
+    <div class="brand">ORE REALMS</div>
+
+    <div class="hud-cell">
+      <div class="hud-label">Round</div>
+      <div class="hud-value" id="hud-round">—</div>
+    </div>
+
+    <div class="hud-cell">
+      <div class="hud-label">Countdown</div>
+      <div class="hud-value" id="hud-timer">--:--</div>
+    </div>
+
+    <div class="hud-cell">
+      <div class="hud-label">SOL Deployed</div>
+      <div class="hud-value" id="hud-sol">0.00</div>
+    </div>
+
+    <div class="hud-cell">
+      <div class="hud-label">Dust</div>
+      <div class="hud-value gold" id="hud-dust">0</div>
+    </div>
+
+    <div class="hud-cell conn-cell">
+      <div class="hud-label">Feed</div>
+      <div class="conn-row">
+        <span class="status-dot offline" id="hud-dot"></span>
+        <span class="status-text" id="hud-status">offline</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script src="js/ore-client.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+
+  var elRound  = document.getElementById('hud-round');
+  var elTimer  = document.getElementById('hud-timer');
+  var elSol    = document.getElementById('hud-sol');
+  var elDust   = document.getElementById('hud-dust');
+  var elDot    = document.getElementById('hud-dot');
+  var elStatus = document.getElementById('hud-status');
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function setStatus(label, cls) {
+    elDot.className = 'status-dot ' + cls;
+    elStatus.textContent = label;
+  }
+
+  // Portals → iframe: listen for dust updates ("dust_120")
+  PortalsBridge.onMessage(function (m) {
+    if (m.type === 'dust') {
+      var n = (m.payload && m.payload[0] != null) ? Number(m.payload[0]) : 0;
+      elDust.textContent = isFinite(n) ? Math.floor(n).toLocaleString() : '0';
+    }
+    // We also accept round / time / total_sol pushes from Portals if Portals chooses
+    // to drive the HUD instead of the local OreClient.
+    if (m.type === 'round' && m.payload && m.payload[0] != null) {
+      elRound.textContent = '#' + Number(m.payload[0]);
+    }
+    if (m.type === 'time' && m.payload && m.payload[0] != null) {
+      elTimer.textContent = fmtTime(Number(m.payload[0]));
+    }
+    if (m.type === 'totalsol' && m.payload && m.payload[0] != null) {
+      elSol.textContent = Number(m.payload[0]).toFixed(2);
+    }
+  });
+
+  // Local poll provides authoritative round/timer/sol if Portals isn't driving us.
+  OreClient.startPolling({
+    onGrid: function (cells) {
+      var total = 0;
+      for (var i = 0; i < cells.length; i++) total += cells[i];
+      elSol.textContent = total.toFixed(2);
+    },
+    onRound: function (n) {
+      elRound.textContent = '#' + n;
+    },
+    onTimer: function (sec) {
+      elTimer.textContent = fmtTime(sec);
+    },
+    onWinner: function (idx, mother) {
+      PortalsBridge.debugLog('winner cell ' + idx + (mother ? ' MOTHERLODE' : ''));
+    },
+    onSource: function (src) {
+      if (src === 'live') setStatus('live', 'connected');
+      else if (src === 'simulated') setStatus('sim', 'simulated');
+      else setStatus('offline', 'offline');
+    }
+  });
+</script>
+</body>
+</html>

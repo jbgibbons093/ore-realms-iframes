@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vault — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body { background: transparent; }
+  body.solid-bg { background: var(--bg-obsidian); padding: 20px; }
+  .wrap {
+    max-width: 420px;
+    margin: 14px auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 18px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  h2 {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 22px;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .sub { color: var(--text-dim); font-size: 11px; margin-bottom: 16px; letter-spacing: 0.06em; }
+
+  .addr-row {
+    display: flex; align-items: center; gap: 8px;
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+  }
+  .addr-row .lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .addr-row .val { font-family: var(--font-mono); color: var(--accent-orange); font-size: 13px; }
+
+  .bals {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .bal {
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 10px;
+    text-align: center;
+  }
+  .bal .lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .bal .val { font-family: var(--font-display); font-size: 22px; color: var(--accent-orange); text-shadow: var(--glow-orange); margin-top: 4px; }
+  .bal.gold .val { color: var(--accent-gold); text-shadow: var(--glow-gold); }
+
+  .pending-row {
+    background: rgba(255,210,74,0.06);
+    border: 1px solid var(--accent-orange-dim);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pending-row .lbl { color: var(--text-dim); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .pending-row .val { font-family: var(--font-display); color: var(--accent-gold); font-size: 18px; text-shadow: var(--glow-gold); }
+
+  .claim-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .toast {
+    margin-top: 10px;
+    padding: 8px;
+    background: rgba(74,255,138,0.1);
+    color: var(--accent-green);
+    border: 1px solid #2a6a3c;
+    border-radius: 3px;
+    font-size: 11px;
+    text-align: center;
+  }
+  .empty {
+    text-align: center;
+    padding: 32px 12px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Vault</h2>
+  <div class="sub">Your ORE protocol holdings &amp; unclaimed rewards.</div>
+
+  <div id="empty-state" class="empty">
+    <p>Connect a wallet at a Mining Kiosk first.</p>
+    <button class="btn" id="btn-connect">Connect Phantom</button>
+  </div>
+
+  <div id="vault-state" class="hidden">
+    <div class="addr-row">
+      <span class="lbl">Wallet:</span>
+      <span class="val" id="v-addr">…</span>
+    </div>
+
+    <div class="bals">
+      <div class="bal"><div class="lbl">SOL Balance</div><div class="val" id="v-sol">0.000</div></div>
+      <div class="bal gold"><div class="lbl">ORE Balance</div><div class="val" id="v-ore">0.000</div></div>
+    </div>
+
+    <div class="pending-row">
+      <span class="lbl">Unclaimed (this session)</span>
+      <span class="val" id="v-pending">0.000 ORE</span>
+    </div>
+
+    <div class="claim-row">
+      <button class="btn gold" id="btn-claim-ore">Claim ORE</button>
+      <button class="btn ghost" id="btn-claim-sol">Claim SOL</button>
+    </div>
+
+    <div class="toast hidden" id="v-toast">Coming soon — opening ore.supply…</div>
+
+    <div style="margin-top:12px">
+      <button class="btn ghost" id="btn-refresh" style="width:100%">Refresh balances</button>
+    </div>
+  </div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var ORE_MINT = 'oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp';
+  var ORE_DECIMALS = 11;
+  var RPC_URL = 'https://api.mainnet-beta.solana.com';
+
+  var elEmpty = document.getElementById('empty-state');
+  var elVault = document.getElementById('vault-state');
+  var elAddr  = document.getElementById('v-addr');
+  var elSol   = document.getElementById('v-sol');
+  var elOre   = document.getElementById('v-ore');
+  var elPend  = document.getElementById('v-pending');
+  var elToast = document.getElementById('v-toast');
+  var elBtnConnect  = document.getElementById('btn-connect');
+  var elClaimOre    = document.getElementById('btn-claim-ore');
+  var elClaimSol    = document.getElementById('btn-claim-sol');
+  var elRefresh     = document.getElementById('btn-refresh');
+
+  var connection = null;
+  var publicKey  = null;
+
+  function shorten(s) {
+    if (!s) return '';
+    if (s.length <= 12) return s;
+    return s.slice(0, 6) + '…' + s.slice(-6);
+  }
+
+  function ensureConnection() {
+    if (!connection && window.solanaWeb3 && window.solanaWeb3.Connection) {
+      connection = new window.solanaWeb3.Connection(RPC_URL, 'confirmed');
+    }
+    return connection;
+  }
+
+  async function fetchBalances() {
+    if (!publicKey) return;
+    var conn = ensureConnection();
+    if (!conn) return;
+    var pk = new window.solanaWeb3.PublicKey(publicKey);
+    try {
+      var lamports = await conn.getBalance(pk);
+      elSol.textContent = (lamports / 1e9).toFixed(3);
+    } catch (e) { elSol.textContent = 'err'; PortalsBridge.debugLog('SOL err ' + e.message); }
+    try {
+      var mintObj = new window.solanaWeb3.PublicKey(ORE_MINT);
+      var resp = await conn.getParsedTokenAccountsByOwner(pk, { mint: mintObj });
+      var total = 0;
+      (resp.value || []).forEach(function (acc) {
+        try {
+          var info = acc.account.data.parsed.info.tokenAmount;
+          var ui = info.uiAmount;
+          if (ui == null && info.amount != null) ui = Number(info.amount) / Math.pow(10, ORE_DECIMALS);
+          if (ui) total += ui;
+        } catch (e) { /* ignore */ }
+      });
+      elOre.textContent = total.toFixed(3);
+    } catch (e) { elOre.textContent = 'err'; PortalsBridge.debugLog('ORE err ' + e.message); }
+  }
+
+  function showConnected(addr) {
+    publicKey = addr;
+    elAddr.textContent = shorten(addr);
+    elAddr.title = addr;
+    elEmpty.classList.add('hidden');
+    elVault.classList.remove('hidden');
+    fetchBalances();
+  }
+
+  async function connectPhantom() {
+    var p = window.solana && window.solana.isPhantom ? window.solana
+          : (window.phantom && window.phantom.solana) ? window.phantom.solana : null;
+    if (!p) { alert('Phantom not installed.'); return; }
+    try {
+      var resp = await p.connect();
+      var pk = resp && resp.publicKey ? resp.publicKey.toString() : (p.publicKey ? p.publicKey.toString() : null);
+      if (pk) showConnected(pk);
+    } catch (e) {
+      PortalsBridge.debugLog('connect err ' + e.message);
+    }
+  }
+
+  function showToast(msg) {
+    elToast.textContent = msg;
+    elToast.classList.remove('hidden');
+    setTimeout(function () { elToast.classList.add('hidden'); }, 3000);
+  }
+
+  elBtnConnect.addEventListener('click', connectPhantom);
+
+  elClaimOre.addEventListener('click', function () {
+    showToast('Coming soon — opening ore.supply');
+    window.open('https://ore.supply', '_blank', 'noopener');
+    PortalsBridge.activateTask('Claim_ORE_Clicked');
+    PortalsBridge.debugLog('claim ORE clicked');
+  });
+
+  elClaimSol.addEventListener('click', function () {
+    showToast('Coming soon — opening ore.supply');
+    window.open('https://ore.supply', '_blank', 'noopener');
+    PortalsBridge.activateTask('Claim_SOL_Clicked');
+    PortalsBridge.debugLog('claim SOL clicked');
+  });
+
+  elRefresh.addEventListener('click', fetchBalances);
+
+  // Listen for wallet_connected from sibling wallet.html via Portals broadcast.
+  PortalsBridge.onMessage(function (m) {
+    if (m.type === 'wallet' && m.payload && m.payload[0]) {
+      // e.g. "wallet_<addr>"
+      showConnected(String(m.payload[0]));
+    }
+    if (m.type === 'pending' && m.payload && m.payload[0] != null) {
+      elPend.textContent = Number(m.payload[0]).toFixed(3) + ' ORE';
+    }
+  });
+
+  // Try auto-detect on load
+  window.addEventListener('load', function () {
+    var p = window.solana && window.solana.isPhantom ? window.solana : null;
+    if (p && p.isConnected && p.publicKey) {
+      showConnected(p.publicKey.toString());
+    }
+  });
+
+  // Periodic refresh
+  setInterval(function () { if (publicKey) fetchBalances(); }, 30000);
+</script>
+</body>
+</html>

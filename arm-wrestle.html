@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arm Wrestle — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body { background: transparent; }
+  body.solid-bg { background: var(--bg-obsidian); padding: 20px; }
+  .wrap {
+    max-width: 420px;
+    margin: 14px auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  h2 {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 22px;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .sub { color: var(--text-dim); font-size: 11px; margin-bottom: 16px; }
+
+  .timer {
+    font-family: var(--font-display);
+    font-size: 56px;
+    color: var(--accent-gold);
+    text-shadow: var(--glow-gold);
+    line-height: 1;
+    margin: 10px 0;
+  }
+  .timer.urgent { color: var(--accent-red); text-shadow: 0 0 10px var(--accent-red); }
+
+  .scores {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .score {
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 10px;
+  }
+  .score .lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .score .val { font-family: var(--font-display); font-size: 32px; color: var(--accent-orange); text-shadow: var(--glow-orange); margin-top: 4px; }
+  .score.you .val { color: var(--accent-gold); text-shadow: var(--glow-gold); }
+  .score.leading { border-color: var(--accent-gold); animation: pulse-bd 0.8s ease-in-out infinite; }
+  @keyframes pulse-bd {
+    0%,100% { box-shadow: 0 0 0 transparent; }
+    50%     { box-shadow: 0 0 12px rgba(255,210,74,0.5); }
+  }
+
+  .smash-btn {
+    width: 100%;
+    padding: 22px;
+    background: var(--accent-orange);
+    color: #1a0e06;
+    border: none;
+    border-radius: 6px;
+    font-family: var(--font-display);
+    font-size: 28px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    margin: 14px 0;
+    transition: transform 0.05s ease, box-shadow 0.05s ease;
+    box-shadow: var(--glow-orange);
+  }
+  .smash-btn:active { transform: scale(0.96); box-shadow: 0 0 24px var(--accent-gold); background: var(--accent-gold); }
+  .smash-btn[disabled] { background: var(--text-faint); color: var(--text-dim); cursor: not-allowed; box-shadow: none; transform: none; }
+
+  .result {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 4px;
+    font-family: var(--font-display);
+    font-size: 20px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .result.win  { background: rgba(74,255,138,0.15); color: var(--accent-green); border: 1px solid #2a6a3c; }
+  .result.lose { background: rgba(255,58,58,0.15); color: var(--accent-red);   border: 1px solid #6a2a2a; }
+  .result.tie  { background: rgba(255,210,74,0.15); color: var(--accent-gold); border: 1px solid #6a5a2a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Big Bart's Arm Wrestle</h2>
+  <div class="sub">Spam click. 5 seconds. Beat him for the Iron Arm title.</div>
+
+  <div class="timer" id="aw-timer">5.0</div>
+
+  <div class="scores">
+    <div class="score you" id="aw-you-box"><div class="lbl">You</div><div class="val" id="aw-you">0</div></div>
+    <div class="score" id="aw-npc-box"><div class="lbl">Big Bart</div><div class="val" id="aw-npc">0</div></div>
+  </div>
+
+  <button class="smash-btn" id="aw-btn">SMASH</button>
+
+  <div class="result hidden" id="aw-result"></div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var elTimer  = document.getElementById('aw-timer');
+  var elYou    = document.getElementById('aw-you');
+  var elNpc    = document.getElementById('aw-npc');
+  var elYouBox = document.getElementById('aw-you-box');
+  var elNpcBox = document.getElementById('aw-npc-box');
+  var elBtn    = document.getElementById('aw-btn');
+  var elResult = document.getElementById('aw-result');
+
+  var DURATION = 5.0; // seconds
+  // NPC is tough but beatable. Random clicks-per-second 4..8.
+  var NPC_CPS = 4 + Math.random() * 4;
+
+  var state = {
+    running: false,
+    finished: false,
+    startedAt: 0,
+    you: 0,
+    npc: 0,
+    rafId: null
+  };
+
+  function setLeading() {
+    elYouBox.classList.toggle('leading', state.you > state.npc);
+    elNpcBox.classList.toggle('leading', state.npc > state.you);
+  }
+
+  function tick() {
+    if (!state.running) return;
+    var elapsed = (performance.now() - state.startedAt) / 1000;
+    var remaining = Math.max(0, DURATION - elapsed);
+
+    // NPC accrues fractionally — round down to integer for display.
+    state.npc = Math.floor(NPC_CPS * elapsed);
+    elNpc.textContent = state.npc;
+
+    elTimer.textContent = remaining.toFixed(1);
+    elTimer.classList.toggle('urgent', remaining < 1.5);
+
+    setLeading();
+
+    if (remaining <= 0) {
+      finish();
+      return;
+    }
+    state.rafId = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    state.running = true;
+    state.finished = false;
+    state.startedAt = performance.now();
+    state.you = 0;
+    state.npc = 0;
+    elYou.textContent = '0';
+    elNpc.textContent = '0';
+    elResult.classList.add('hidden');
+    elBtn.disabled = false;
+    elBtn.textContent = 'SMASH';
+    NPC_CPS = 4 + Math.random() * 4;
+    PortalsBridge.debugLog('arm-wrestle start, NPC cps=' + NPC_CPS.toFixed(2));
+    requestAnimationFrame(tick);
+  }
+
+  function finish() {
+    state.running = false;
+    state.finished = true;
+    if (state.rafId) cancelAnimationFrame(state.rafId);
+    elBtn.disabled = true;
+    elBtn.textContent = 'OVER';
+    elTimer.textContent = '0.0';
+
+    var youWon = state.you > state.npc;
+    var tied   = state.you === state.npc;
+
+    elResult.classList.remove('hidden', 'win', 'lose', 'tie');
+    if (tied) {
+      elResult.classList.add('tie');
+      elResult.textContent = 'TIE — no title';
+    } else if (youWon) {
+      elResult.classList.add('win');
+      elResult.textContent = 'YOU WIN — Iron Arm earned';
+      PortalsBridge.sendRaw('title_ironarm');
+      PortalsBridge.sendRaw({ type: 'title_ironarm', winner: 'player', you: state.you, npc: state.npc });
+      PortalsBridge.activateTask('ArmWrestle_Player_Win');
+    } else {
+      elResult.classList.add('lose');
+      elResult.textContent = 'BIG BART CRUSHES YOU';
+      PortalsBridge.activateTask('ArmWrestle_Npc_Win');
+    }
+    PortalsBridge.debugLog('arm-wrestle done you=' + state.you + ' npc=' + state.npc);
+
+    // Allow replay
+    setTimeout(function () {
+      elBtn.disabled = false;
+      elBtn.textContent = 'PLAY AGAIN';
+    }, 1500);
+  }
+
+  function onClick() {
+    if (state.finished) {
+      start();
+      return;
+    }
+    if (!state.running) {
+      start();
+    }
+    state.you++;
+    elYou.textContent = state.you;
+    setLeading();
+  }
+
+  elBtn.addEventListener('click', onClick);
+  // Allow spacebar / enter spam
+  document.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      onClick();
+    }
+  });
+</script>
+</body>
+</html>

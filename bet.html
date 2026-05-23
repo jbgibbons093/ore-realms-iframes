@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Watch Tower Bet — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css">
+<style>
+  body { background: transparent; }
+  body.solid-bg { background: var(--bg-obsidian); padding: 18px; }
+  .wrap {
+    max-width: 440px;
+    margin: 14px auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  h2 {
+    font-family: var(--font-display);
+    color: var(--accent-orange);
+    text-shadow: var(--glow-orange);
+    font-size: 18px;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .sub { color: var(--text-dim); font-size: 11px; margin-bottom: 12px; letter-spacing: 0.06em; }
+
+  .dust-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 14px;
+  }
+  .dust-bar .lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+  .dust-bar .val { font-family: var(--font-display); color: var(--accent-gold); font-size: 18px; text-shadow: var(--glow-gold); }
+
+  .bet-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    margin-bottom: 14px;
+  }
+  .bet-cell {
+    aspect-ratio: 1 / 1;
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    position: relative;
+    transition: all 0.15s ease;
+  }
+  .bet-cell .idx { font-family: var(--font-display); color: var(--text-primary); font-size: 14px; }
+  .bet-cell .odds { font-size: 9px; color: var(--text-faint); margin-top: 2px; }
+  .bet-cell:hover { border-color: var(--accent-orange); background: rgba(255,140,66,0.1); }
+  .bet-cell.selected {
+    background: rgba(255,140,66,0.25);
+    border-color: var(--accent-orange);
+    box-shadow: 0 0 10px rgba(255,140,66,0.5);
+  }
+  .bet-cell.selected .idx { color: var(--accent-orange); }
+  .bet-cell.hot::after {
+    content: '';
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 6px; height: 6px;
+    background: var(--accent-orange);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--accent-orange);
+  }
+
+  .submit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
+  .pick-display {
+    background: rgba(255,140,66,0.08);
+    border: 1px solid var(--accent-orange-dim);
+    border-radius: 3px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .pick-display strong { color: var(--accent-orange); font-family: var(--font-display); font-size: 15px; }
+  .toast {
+    margin-top: 10px;
+    padding: 8px;
+    background: rgba(74,255,138,0.1);
+    color: var(--accent-green);
+    border: 1px solid #2a6a3c;
+    border-radius: 3px;
+    font-size: 11px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Watch Tower Bet</h2>
+  <div class="sub">Pick a cell. Wager Dust. Survive the round, win bragging rights.</div>
+
+  <div class="dust-bar">
+    <span class="lbl">Your Dust</span>
+    <span class="val" id="b-dust">0</span>
+  </div>
+
+  <div class="pick-display">
+    Picked: <strong id="b-pick">—</strong> &middot; Odds: <strong id="b-odds">—</strong>
+  </div>
+
+  <div class="bet-grid" id="b-grid"></div>
+
+  <div class="submit-row">
+    <div>
+      <label for="b-amt">Wager (Dust)</label>
+      <input id="b-amt" type="number" min="1" step="1" value="10">
+    </div>
+    <button class="btn gold" id="b-submit">Place Bet</button>
+  </div>
+
+  <div class="toast hidden" id="b-toast"></div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js"></script>
+<script src="js/ore-client.js"></script>
+<script>
+  if (location.search.indexOf('debug=1') !== -1) document.body.classList.add('debug');
+  if (location.search.indexOf('solid=1') !== -1) document.body.classList.add('solid-bg');
+
+  var elGrid  = document.getElementById('b-grid');
+  var elDust  = document.getElementById('b-dust');
+  var elPick  = document.getElementById('b-pick');
+  var elOdds  = document.getElementById('b-odds');
+  var elAmt   = document.getElementById('b-amt');
+  var elSubmit = document.getElementById('b-submit');
+  var elToast = document.getElementById('b-toast');
+
+  var state = {
+    cells: new Array(25).fill(0),
+    pickedCell: null, // 1..25
+    dust: 0
+  };
+
+  // Build cells
+  var cellEls = [];
+  for (var i = 1; i <= 25; i++) {
+    (function (idx) {
+      var c = document.createElement('div');
+      c.className = 'bet-cell';
+      c.innerHTML = '<div class="idx">' + idx + '</div><div class="odds">--</div>';
+      c.addEventListener('click', function () { selectCell(idx); });
+      elGrid.appendChild(c);
+      cellEls.push(c);
+    })(i);
+  }
+
+  function selectCell(idx) {
+    state.pickedCell = idx;
+    cellEls.forEach(function (c, i) { c.classList.toggle('selected', (i + 1) === idx); });
+    updatePickDisplay();
+  }
+
+  function updatePickDisplay() {
+    if (!state.pickedCell) {
+      elPick.textContent = '—';
+      elOdds.textContent = '—';
+      return;
+    }
+    elPick.textContent = 'Cell ' + state.pickedCell;
+    var total = state.cells.reduce(function (a, b) { return a + b; }, 0);
+    var v = state.cells[state.pickedCell - 1] || 0;
+    if (total > 0) {
+      var share = v / total;
+      var oddsLabel = share > 0
+        ? '1 in ' + (share > 0 ? (1 / share).toFixed(1) : '∞')
+        : 'long shot';
+      elOdds.textContent = oddsLabel;
+    } else {
+      elOdds.textContent = '—';
+    }
+  }
+
+  function refreshOdds() {
+    var total = state.cells.reduce(function (a, b) { return a + b; }, 0);
+    cellEls.forEach(function (c, i) {
+      var v = state.cells[i] || 0;
+      var oddsEl = c.querySelector('.odds');
+      if (total > 0 && v > 0) {
+        var pct = (v / total * 100).toFixed(1);
+        oddsEl.textContent = pct + '%';
+        c.classList.toggle('hot', (v / total) > 0.1);
+      } else {
+        oddsEl.textContent = '--';
+        c.classList.remove('hot');
+      }
+    });
+    updatePickDisplay();
+  }
+
+  function showToast(msg, isErr) {
+    elToast.textContent = msg;
+    elToast.style.background = isErr ? 'rgba(255,58,58,0.15)' : 'rgba(74,255,138,0.1)';
+    elToast.style.color = isErr ? 'var(--accent-red)' : 'var(--accent-green)';
+    elToast.classList.remove('hidden');
+    setTimeout(function () { elToast.classList.add('hidden'); }, 3000);
+  }
+
+  elSubmit.addEventListener('click', function () {
+    if (!state.pickedCell) { showToast('Pick a cell first.', true); return; }
+    var amt = parseInt(elAmt.value, 10);
+    if (!amt || amt <= 0) { showToast('Enter wager > 0.', true); return; }
+    if (amt > state.dust) { showToast('Not enough Dust.', true); return; }
+
+    PortalsBridge.activateTask('Bet_Cell_' + state.pickedCell);
+    PortalsBridge.activateTask('Bet_Placed');
+    PortalsBridge.sendRaw({ type: 'bet_placed', cell: state.pickedCell, dust: amt });
+    PortalsBridge.debugLog('bet ' + amt + ' dust on cell ' + state.pickedCell);
+    showToast('Bet locked in: ' + amt + ' Dust on cell ' + state.pickedCell);
+
+    // optimistic local debit
+    state.dust = Math.max(0, state.dust - amt);
+    elDust.textContent = state.dust.toLocaleString();
+  });
+
+  // Portals tells us current dust ("dust_120")
+  PortalsBridge.onMessage(function (m) {
+    if (m.type === 'dust' && m.payload && m.payload[0] != null) {
+      var n = Number(m.payload[0]);
+      if (isFinite(n)) {
+        state.dust = n;
+        elDust.textContent = n.toLocaleString();
+      }
+    }
+  });
+
+  // Pull live grid data for odds
+  OreClient.startPolling({
+    onGrid: function (cells) {
+      state.cells = cells.slice(0, 25);
+      while (state.cells.length < 25) state.cells.push(0);
+      refreshOdds();
+    },
+    onRound: function (n) {
+      PortalsBridge.debugLog('bet round ' + n + ' (clearing pick)');
+      state.pickedCell = null;
+      cellEls.forEach(function (c) { c.classList.remove('selected'); });
+      updatePickDisplay();
+    },
+    onWinner: function () { /* result handled elsewhere */ }
+  });
+</script>
+</body>
+</html>

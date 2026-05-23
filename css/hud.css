@@ -1,0 +1,288 @@
+/* ORE REALMS — shared design system
+ * Dark obsidian background, accent orange, gold for motherlode.
+ * Body is transparent by default so iframes overlay the 3D world cleanly.
+ */
+
+:root {
+  --bg-obsidian: #0c0a08;
+  --bg-panel: rgba(18, 14, 12, 0.86);
+  --bg-panel-solid: #14100d;
+  --border-color: #2a221c;
+  --accent-orange: #ff8c42;
+  --accent-orange-dim: #b85a23;
+  --accent-gold: #ffd24a;
+  --accent-red: #ff3a3a;
+  --accent-green: #4aff8a;
+  --accent-yellow: #ffd24a;
+  --text-primary: #f6e9d8;
+  --text-dim: #9a8a78;
+  --text-faint: #5a4d40;
+  --font-mono: 'Courier New', 'Consolas', monospace;
+  --font-display: 'Impact', 'Arial Black', 'Helvetica Neue', sans-serif;
+  --glow-orange: 0 0 10px rgba(255, 140, 66, 0.7), 0 0 20px rgba(255, 140, 66, 0.3);
+  --glow-gold: 0 0 14px rgba(255, 210, 74, 0.8), 0 0 28px rgba(255, 210, 74, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Use this on standalone test pages where you want the dark BG to show. */
+body.solid-bg {
+  background: var(--bg-obsidian);
+}
+
+/* HUD-sized panels (top bar) */
+.hud-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--bg-panel);
+  border-bottom: 2px solid var(--accent-orange-dim);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.hud-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 12px;
+  min-width: 110px;
+  border-right: 1px solid var(--border-color);
+}
+
+.hud-cell:last-of-type {
+  border-right: none;
+}
+
+.hud-label {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.hud-value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--accent-orange);
+  text-shadow: var(--glow-orange);
+  letter-spacing: 0.04em;
+}
+
+.hud-value.gold {
+  color: var(--accent-gold);
+  text-shadow: var(--glow-gold);
+}
+
+.hud-value.dim {
+  color: var(--text-dim);
+  text-shadow: none;
+}
+
+/* Status dot */
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--accent-red);
+  box-shadow: 0 0 8px currentColor;
+  transition: background 0.4s ease;
+}
+.status-dot.connected { background: var(--accent-green); color: var(--accent-green); }
+.status-dot.simulated { background: var(--accent-yellow); color: var(--accent-yellow); }
+.status-dot.offline { background: var(--accent-red); color: var(--accent-red); }
+
+/* Generic panels */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 16px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.panel-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--accent-orange);
+  text-shadow: var(--glow-orange);
+  letter-spacing: 0.08em;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+}
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 10px 16px;
+  background: var(--accent-orange);
+  color: #1a0e06;
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-weight: bold;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  text-align: center;
+}
+
+.btn:hover {
+  background: var(--accent-gold);
+  box-shadow: var(--glow-orange);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn[disabled] {
+  background: var(--text-faint);
+  color: var(--text-dim);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--accent-orange);
+  border: 1px solid var(--accent-orange-dim);
+}
+
+.btn.ghost:hover {
+  background: rgba(255, 140, 66, 0.1);
+  color: var(--accent-gold);
+}
+
+.btn.gold {
+  background: var(--accent-gold);
+  color: #1a0e06;
+}
+
+/* Form inputs */
+input[type="number"],
+input[type="text"],
+select {
+  background: #1a1410;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+}
+
+input:focus, select:focus {
+  border-color: var(--accent-orange);
+  box-shadow: 0 0 6px rgba(255, 140, 66, 0.4);
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+
+/* Timer bar */
+.timer-bar {
+  width: 100%;
+  height: 6px;
+  background: #1a1410;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.timer-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-orange) 0%, var(--accent-gold) 100%);
+  transition: width 0.4s linear;
+  box-shadow: 0 0 8px rgba(255, 140, 66, 0.6);
+}
+
+.timer-bar-fill.urgent {
+  background: linear-gradient(90deg, var(--accent-red) 0%, var(--accent-orange) 100%);
+  animation: pulse-urgent 1s ease-in-out infinite;
+}
+
+@keyframes pulse-urgent {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Debug area (hidden) */
+#pb-debug {
+  display: none;
+}
+
+/* Body.debug shows it */
+body.debug #pb-debug {
+  display: block;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+  background: rgba(0,0,0,0.85);
+  color: #4aff8a;
+  font-family: monospace;
+  font-size: 10px;
+  padding: 4px 8px;
+  z-index: 9999;
+  border-top: 1px solid var(--accent-orange-dim);
+}
+
+/* Display numbers (big bold ones) */
+.display {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+/* Utility */
+.row { display: flex; align-items: center; gap: 8px; }
+.col { display: flex; flex-direction: column; gap: 6px; }
+.spacer { flex: 1; }
+.center { display: flex; align-items: center; justify-content: center; }
+.text-orange { color: var(--accent-orange); }
+.text-gold { color: var(--accent-gold); }
+.text-dim { color: var(--text-dim); }
+.text-green { color: var(--accent-green); }
+.text-red { color: var(--accent-red); }
+.mono { font-family: var(--font-mono); }
+.muted { opacity: 0.7; }
+.hidden { display: none !important; }
