@@ -12,10 +12,10 @@
   'use strict';
 
   var API   = 'https://api.ore-stats.com';
-  var POLL_ROUND_MS    = 1000;   // /round  — per-cell deployed[], total, miners, slots_remaining
-  var POLL_SLOT_MS     = 1000;   // /slot   — current Solana slot (timer animation)
-  var POLL_PRICES_MS   = 1000;   // /prices — SOL/ORE USD
-  var POLL_TREASURY_MS = 1000;   // /treasury — motherlode prize, total staked, etc.
+  var POLL_ROUND_MS    = 1000;   // /round  — per-cell deployed[], total, miners, slots_remaining (timer source)
+  var POLL_SLOT_MS     = 60000;  // /slot   — current Solana slot (low-priority, slow poll)
+  var POLL_PRICES_MS   = 60000;  // /prices — SOL/ORE USD
+  var POLL_TREASURY_MS = 60000;  // /treasury — motherlode prize, total staked, etc.
   var SLOT_MS          = 400;    // ~400ms per Solana slot
 
   var statusEl = document.getElementById('status');
@@ -187,7 +187,7 @@
 
   syncWindowName();
   log('bridge running');
-  post({ kind:'ore_bridge_ready', v: 9, ts: (new Date()).toISOString() });
+  post({ kind:'ore_bridge_ready', v: 10, ts: (new Date()).toISOString() });
 })();
 </script>
 </body>
