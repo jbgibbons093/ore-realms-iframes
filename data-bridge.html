@@ -13,7 +13,6 @@
 
   var API   = 'https://api.ore-stats.com';
   var POLL_ROUND_MS    = 1000;   // /round  — per-cell deployed[], total, miners, slots_remaining (timer source)
-  var POLL_SLOT_MS     = 60000;  // /slot   — current Solana slot (low-priority, slow poll)
   var POLL_PRICES_MS   = 60000;  // /prices — SOL/ORE USD
   var POLL_TREASURY_MS = 60000;  // /treasury — motherlode prize, total staked, etc.
   var SLOT_MS          = 400;    // ~400ms per Solana slot
@@ -39,7 +38,6 @@
 
   var lastRoundId = null;
   var lastCellSol = new Array(25).fill(-1);  // suppress identical re-posts
-  var lastSlot = -1;
 
   // Shared state object — also serialized to window.name as the cross-compartment data channel.
   // Portals' secure sandbox can't receive postMessage (globalThis.onmessage is isolated per compartment),
@@ -56,7 +54,6 @@
     unique_miners: 0,
     last_winner: 0,
     last_winner_round: 0,
-    slot: 0,
     sol_usd: 0,
     ore_usd: 0
   };
@@ -130,18 +127,6 @@
     });
   }
 
-  function tickSlot(){
-    fetchJson('/slot').then(function(j){
-      var s = Number(j.slot) || 0;
-      BRIDGE_STATE.slot = s;
-      if (s !== lastSlot){
-        lastSlot = s;
-        post({ kind:'ore_slot', slot: s });
-        syncWindowName();
-      }
-    }).catch(function(){});
-  }
-
   function tickPrices(){
     fetchJson('/prices').then(function(j){
       BRIDGE_STATE.sol_usd = Number(j.sol_price_usd) || 0;
@@ -177,17 +162,15 @@
 
   // Kick off immediately, then on intervals.
   tickRound();
-  tickSlot();
   tickPrices();
   tickTreasury();
   setInterval(tickRound,    POLL_ROUND_MS);
-  setInterval(tickSlot,     POLL_SLOT_MS);
   setInterval(tickPrices,   POLL_PRICES_MS);
   setInterval(tickTreasury, POLL_TREASURY_MS);
 
   syncWindowName();
   log('bridge running');
-  post({ kind:'ore_bridge_ready', v: 10, ts: (new Date()).toISOString() });
+  post({ kind:'ore_bridge_ready', v: 11, ts: (new Date()).toISOString() });
 })();
 </script>
 </body>
