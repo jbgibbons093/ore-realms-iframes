@@ -12,7 +12,7 @@
   'use strict';
 
   var API   = 'https://api.ore-stats.com';
-  var POLL_ROUND_MS  = 8000;   // /round  — per-cell deployed[], total, miners, slots_remaining
+  var POLL_ROUND_MS  = 2000;   // /round  — per-cell deployed[], total, miners, slots_remaining (was 8000, reduced for real-time pool)
   var POLL_SLOT_MS   = 1500;   // /slot   — current Solana slot (timer animation)
   var POLL_PRICES_MS = 60000;  // /prices — SOL/ORE USD
   var SLOT_MS        = 400;    // ~400ms per Solana slot
