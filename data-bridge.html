@@ -158,9 +158,10 @@
 
   function tickTreasury(){
     fetchJson('/treasury').then(function(j){
-      var motherlode = (Number(j.motherlode) || 0) / 1e9;
-      var balance    = (Number(j.balance) || 0) / 1e9;
-      var totalStaked = (Number(j.total_staked) || 0) / 1e9;
+      // motherlode + total_staked use 1e11 divisor (ORE-scale decimals, not lamports)
+      var motherlode  = (Number(j.motherlode) || 0) / 1e11;
+      var balance     = (Number(j.balance) || 0) / 1e9;   // balance is SOL lamports
+      var totalStaked = (Number(j.total_staked) || 0) / 1e11;
       BRIDGE_STATE.motherlode = motherlode;
       BRIDGE_STATE.treasury_balance = balance;
       BRIDGE_STATE.total_staked = totalStaked;
