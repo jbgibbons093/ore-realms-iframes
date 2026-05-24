@@ -21,10 +21,19 @@
   function log(msg){ try{ statusEl.textContent = msg; console.log('[ore-bridge]', msg); }catch(e){} }
 
   // Post payload to whoever owns this iframe.
-  // We post to parent for the displayHtml-embedded case, and to top as a fallback.
+  // We post to parent (displayHtml host), to top, AND to the same-origin sibling iframe
+  // "ore_data_holder" which serves as the cross-compartment data channel.
+  // Portals' secure-mode JS sandbox can't directly listen to window messages, but it CAN
+  // poll the same-origin holder iframe's window.ORE_DATA property via DOM access.
   function post(payload){
     try{ if (parent && parent !== window) parent.postMessage(payload, '*'); }catch(e){}
     try{ if (top    && top    !== window) top.postMessage(payload, '*'); }catch(e){}
+    try{
+      var siblings = parent && parent.frames;
+      if (siblings && siblings.ore_data_holder){
+        siblings.ore_data_holder.postMessage(payload, '*');
+      }
+    } catch(e){}
   }
 
   var lastRoundId = null;
