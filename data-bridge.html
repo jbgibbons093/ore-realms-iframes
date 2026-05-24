@@ -12,10 +12,11 @@
   'use strict';
 
   var API   = 'https://api.ore-stats.com';
-  var POLL_ROUND_MS  = 2000;   // /round  — per-cell deployed[], total, miners, slots_remaining (was 8000, reduced for real-time pool)
-  var POLL_SLOT_MS   = 1500;   // /slot   — current Solana slot (timer animation)
-  var POLL_PRICES_MS = 60000;  // /prices — SOL/ORE USD
-  var SLOT_MS        = 400;    // ~400ms per Solana slot
+  var POLL_ROUND_MS    = 2000;   // /round  — per-cell deployed[], total, miners, slots_remaining
+  var POLL_SLOT_MS     = 1500;   // /slot   — current Solana slot (timer animation)
+  var POLL_PRICES_MS   = 60000;  // /prices — SOL/ORE USD
+  var POLL_TREASURY_MS = 10000;  // /treasury — motherlode prize, total staked, etc.
+  var SLOT_MS          = 400;    // ~400ms per Solana slot
 
   var statusEl = document.getElementById('status');
   function log(msg){ try{ statusEl.textContent = msg; console.log('[ore-bridge]', msg); }catch(e){} }
@@ -101,17 +102,20 @@
         slots_remaining: BRIDGE_STATE.slots_remaining,
         round_timer: BRIDGE_STATE.round_timer
       });
-      // Round transition detection — look up previous round's winner
+      // Round transition detection — look up previous round's winner. API field is "winning_square".
       if (lastRoundId !== null && j.round_id !== lastRoundId){
         var prev = lastRoundId;
-        fetchJson('/rounds?per_page=2').then(function(rounds){
-          if (!Array.isArray(rounds)) return;
+        fetchJson('/rounds?per_page=2').then(function(res){
+          var rounds = (res && Array.isArray(res.rounds)) ? res.rounds : (Array.isArray(res) ? res : []);
           for (var k = 0; k < rounds.length; k++){
             if (rounds[k] && rounds[k].round_id === prev){
-              var winnerCell = Number(rounds[k].winner_cell || rounds[k].winning_cell || 0) || 0;
+              var winnerCell = Number(rounds[k].winning_square || rounds[k].winner_cell || rounds[k].winning_cell || 0) || 0;
+              var motherlodeHit = !!rounds[k].motherlode_hit;
+              var topMiner = rounds[k].top_miner || '';
+              var totalWinnings = (Number(rounds[k].total_winnings) || 0) / 1e9;
               BRIDGE_STATE.last_winner = winnerCell;
               BRIDGE_STATE.last_winner_round = prev;
-              post({ kind:'ore_winner', cell: winnerCell, round: prev });
+              post({ kind:'ore_winner', cell: winnerCell, round: prev, motherlode_hit: motherlodeHit, top_miner: topMiner, total_winnings: totalWinnings });
               syncWindowName();
               break;
             }
@@ -152,13 +156,33 @@
     }).catch(function(){});
   }
 
+  function tickTreasury(){
+    fetchJson('/treasury').then(function(j){
+      var motherlode = (Number(j.motherlode) || 0) / 1e9;
+      var balance    = (Number(j.balance) || 0) / 1e9;
+      var totalStaked = (Number(j.total_staked) || 0) / 1e9;
+      BRIDGE_STATE.motherlode = motherlode;
+      BRIDGE_STATE.treasury_balance = balance;
+      BRIDGE_STATE.total_staked = totalStaked;
+      post({
+        kind: 'ore_treasury',
+        motherlode: motherlode,
+        balance: balance,
+        total_staked: totalStaked
+      });
+      syncWindowName();
+    }).catch(function(){});
+  }
+
   // Kick off immediately, then on intervals.
   tickRound();
   tickSlot();
   tickPrices();
-  setInterval(tickRound,  POLL_ROUND_MS);
-  setInterval(tickSlot,   POLL_SLOT_MS);
-  setInterval(tickPrices, POLL_PRICES_MS);
+  tickTreasury();
+  setInterval(tickRound,    POLL_ROUND_MS);
+  setInterval(tickSlot,     POLL_SLOT_MS);
+  setInterval(tickPrices,   POLL_PRICES_MS);
+  setInterval(tickTreasury, POLL_TREASURY_MS);
 
   syncWindowName();
   log('bridge running');
