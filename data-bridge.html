@@ -31,6 +31,33 @@
   var lastCellSol = new Array(25).fill(-1);  // suppress identical re-posts
   var lastSlot = -1;
 
+  // Shared state object — also serialized to window.name as the cross-compartment data channel.
+  // Portals' secure sandbox can't receive postMessage (globalThis.onmessage is isolated per compartment),
+  // but it CAN read iframe element's name attribute via DOM, which is linked to window.name.
+  var BRIDGE_STATE = {
+    v: 5,
+    ts: 0,
+    cells: new Array(25).fill(0),
+    miners: new Array(25).fill(0),
+    round_id: 0,
+    total_deployed: 0,
+    round_timer: 0,
+    slots_remaining: 0,
+    unique_miners: 0,
+    last_winner: 0,
+    last_winner_round: 0,
+    slot: 0,
+    sol_usd: 0,
+    ore_usd: 0
+  };
+
+  function syncWindowName(){
+    try {
+      BRIDGE_STATE.ts = (new Date()).getTime();
+      window.name = JSON.stringify(BRIDGE_STATE);
+    } catch(e){}
+  }
+
   function fetchJson(path){
     return fetch(API + path, { method:'GET', cache:'no-store' })
       .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
@@ -40,41 +67,51 @@
     fetchJson('/round').then(function(j){
       var deployed = Array.isArray(j.deployed) ? j.deployed : [];
       var count    = Array.isArray(j.count)    ? j.count    : [];
-      // Per-cell SOL — only post if changed.
+      // Per-cell SOL — write to state, and post for legacy postMessage path.
       for (var i = 0; i < 25; i++){
         var sol = (Number(deployed[i]) || 0) / 1e9;
         var rounded = Math.round(sol * 10000) / 10000;   // 4 decimal places of SOL
+        BRIDGE_STATE.cells[i]  = rounded;
+        BRIDGE_STATE.miners[i] = Number(count[i]) || 0;
         if (rounded !== lastCellSol[i]){
           lastCellSol[i] = rounded;
           post({ kind:'ore_cell', idx:(i+1), sol:rounded, miners:(Number(count[i])||0) });
         }
       }
       // Round-level aggregates
+      BRIDGE_STATE.round_id        = Number(j.round_id) || 0;
+      BRIDGE_STATE.total_deployed  = (Number(j.total_deployed)||0) / 1e9;
+      BRIDGE_STATE.unique_miners   = Number(j.unique_miners) || 0;
+      BRIDGE_STATE.slots_remaining = Number(j.slots_remaining) || 0;
+      BRIDGE_STATE.round_timer     = Math.max(0, Math.round((Number(j.slots_remaining)||0) * SLOT_MS / 100) / 10);
       post({
         kind: 'ore_round',
-        round_id: Number(j.round_id) || 0,
-        total_deployed: (Number(j.total_deployed)||0) / 1e9,
-        unique_miners: Number(j.unique_miners) || 0,
-        slots_remaining: Number(j.slots_remaining) || 0,
-        round_timer: Math.max(0, Math.round((Number(j.slots_remaining)||0) * SLOT_MS / 100) / 10)  // seconds, 1 decimal
+        round_id: BRIDGE_STATE.round_id,
+        total_deployed: BRIDGE_STATE.total_deployed,
+        unique_miners: BRIDGE_STATE.unique_miners,
+        slots_remaining: BRIDGE_STATE.slots_remaining,
+        round_timer: BRIDGE_STATE.round_timer
       });
       // Round transition detection — look up previous round's winner
       if (lastRoundId !== null && j.round_id !== lastRoundId){
         var prev = lastRoundId;
         fetchJson('/rounds?per_page=2').then(function(rounds){
           if (!Array.isArray(rounds)) return;
-          // Find the round just before current
           for (var k = 0; k < rounds.length; k++){
             if (rounds[k] && rounds[k].round_id === prev){
               var winnerCell = Number(rounds[k].winner_cell || rounds[k].winning_cell || 0) || 0;
+              BRIDGE_STATE.last_winner = winnerCell;
+              BRIDGE_STATE.last_winner_round = prev;
               post({ kind:'ore_winner', cell: winnerCell, round: prev });
+              syncWindowName();
               break;
             }
           }
         }).catch(function(){});
       }
       lastRoundId = j.round_id;
-      log('round '+j.round_id+' pool '+((j.total_deployed||0)/1e9).toFixed(2)+' SOL  slots '+j.slots_remaining);
+      syncWindowName();
+      log('round '+j.round_id+' pool '+BRIDGE_STATE.total_deployed.toFixed(2)+' SOL  slots '+j.slots_remaining);
     }).catch(function(e){
       log('round fetch err: '+(e && e.message || e));
     });
@@ -83,21 +120,26 @@
   function tickSlot(){
     fetchJson('/slot').then(function(j){
       var s = Number(j.slot) || 0;
+      BRIDGE_STATE.slot = s;
       if (s !== lastSlot){
         lastSlot = s;
         post({ kind:'ore_slot', slot: s });
+        syncWindowName();
       }
     }).catch(function(){});
   }
 
   function tickPrices(){
     fetchJson('/prices').then(function(j){
+      BRIDGE_STATE.sol_usd = Number(j.sol_price_usd) || 0;
+      BRIDGE_STATE.ore_usd = Number(j.ore_price_usd) || 0;
       post({
         kind: 'ore_prices',
-        sol_usd: Number(j.sol_price_usd) || 0,
-        ore_usd: Number(j.ore_price_usd) || 0,
+        sol_usd: BRIDGE_STATE.sol_usd,
+        ore_usd: BRIDGE_STATE.ore_usd,
         sol_per_ore: Number(j.sol_per_ore) || 0
       });
+      syncWindowName();
     }).catch(function(){});
   }
 
@@ -109,8 +151,9 @@
   setInterval(tickSlot,   POLL_SLOT_MS);
   setInterval(tickPrices, POLL_PRICES_MS);
 
+  syncWindowName();
   log('bridge running');
-  post({ kind:'ore_bridge_ready', v: 5, ts: (new Date()).toISOString() });
+  post({ kind:'ore_bridge_ready', v: 6, ts: (new Date()).toISOString() });
 })();
 </script>
 </body>
