@@ -308,29 +308,32 @@
     btnTal.classList.toggle('active', which === 'talents');
     btnChr.classList.toggle('active', which === 'char');
   }
-  function openOrToggle(which, msg) {
+  // Toggling the overlay goes through a Portals task per panel. The task in
+  // the room flips the right variable and uses DisplayHTMLContent to push the
+  // matching underscore message into the overlay iframe.
+  function openOrToggle(which, taskName) {
     if (activeTab === which) {
-      PortalsBridge.sendRaw('close_overlay');
+      PortalsBridge.activateTask('CloseOverlay');
       setActive(null);
     } else {
-      PortalsBridge.sendRaw(msg);
+      PortalsBridge.activateTask(taskName);
       setActive(which);
       try { SFX && SFX.coinDing && SFX.coinDing(); } catch (e) {}
     }
   }
-  btnBag.addEventListener('click', function () { openOrToggle('bag',     'open_inventory'); });
-  btnTal.addEventListener('click', function () { openOrToggle('talents', 'open_talents');   });
-  btnChr.addEventListener('click', function () { openOrToggle('char',    'open_character'); });
+  btnBag.addEventListener('click', function () { openOrToggle('bag',     'OpenInventory'); });
+  btnTal.addEventListener('click', function () { openOrToggle('talents', 'OpenTalents');   });
+  btnChr.addEventListener('click', function () { openOrToggle('char',    'OpenCharacter'); });
 
   // Keyboard shortcuts: B / P / C / Escape — match WoW defaults.
   // Only fire when no input element is focused.
   document.addEventListener('keydown', function (e) {
     if (e.target && /input|textarea/i.test(e.target.tagName)) return;
     var k = (e.key || '').toLowerCase();
-    if (k === 'b') openOrToggle('bag',     'open_inventory');
-    if (k === 'p') openOrToggle('talents', 'open_talents');
-    if (k === 'c') openOrToggle('char',    'open_character');
-    if (k === 'escape') { PortalsBridge.sendRaw('close_overlay'); setActive(null); }
+    if (k === 'b') openOrToggle('bag',     'OpenInventory');
+    if (k === 'p') openOrToggle('talents', 'OpenTalents');
+    if (k === 'c') openOrToggle('char',    'OpenCharacter');
+    if (k === 'escape') { PortalsBridge.activateTask('CloseOverlay'); setActive(null); }
   });
 
   // Build 25 mini cells + 1 blank
