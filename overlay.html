@@ -1,0 +1,1189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay — ORE REALMS</title>
+<link rel="stylesheet" href="css/hud.css?v=8">
+<style>
+/* =================== overlay panel scaffolding =================== */
+body { background: transparent; }
+body.hidden .overlay-root { display: none; }
+
+.overlay-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 70px 12px 12px;     /* leave HUD bar clear at top */
+  pointer-events: none;        /* we re-enable on the panel itself */
+}
+
+.overlay-panel {
+  pointer-events: auto;
+  width: min(960px, 96vw);
+  max-height: calc(100vh - 96px);
+  background: linear-gradient(180deg, rgba(22,16,12,0.97), rgba(14,10,8,0.97));
+  border: 2px solid var(--accent-orange-dim);
+  border-radius: 10px;
+  box-shadow: var(--glow-orange), 0 12px 40px rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.overlay-header {
+  display: flex;
+  align-items: center;
+  background: #0a0806;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 10px;
+  height: 44px;
+}
+
+.overlay-tabs { display: flex; gap: 4px; flex: 1; }
+.tab-btn {
+  font-family: var(--font-display);
+  letter-spacing: 0.1em;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0 16px;
+  height: 42px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active {
+  color: var(--accent-orange);
+  border-bottom-color: var(--accent-orange);
+  text-shadow: var(--glow-orange);
+}
+
+.overlay-close {
+  width: 30px; height: 30px;
+  background: #1a1410;
+  border: 1px solid var(--border-color);
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.overlay-close:hover { color: var(--accent-red); border-color: var(--accent-red); }
+
+.overlay-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+.overlay-body section { display: none; }
+.overlay-body section.active { display: block; }
+
+/* =================== shared item slot =================== */
+.slot {
+  position: relative;
+  width: 56px; height: 56px;
+  background: #0a0807;
+  border: 2px solid #2a221c;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .12s, transform .08s;
+}
+.slot:hover { border-color: var(--accent-orange); }
+.slot.empty { background: #050403; border-style: dashed; }
+.slot.drag-over { border-color: var(--accent-gold); box-shadow: var(--glow-gold); }
+.slot.dragging { opacity: 0.35; }
+
+.slot .icon {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff5, transparent 55%), var(--item-color,#888);
+  box-shadow: inset 0 -3px 6px rgba(0,0,0,0.5);
+}
+/* Gear icon: chunkier rectangle silhouette so it reads differently from ore lumps. */
+.slot.gear .icon {
+  border-radius: 6px;
+  background: linear-gradient(160deg, var(--item-color,#888) 0%, #000 130%);
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.slot .count {
+  position: absolute; right: 3px; bottom: 1px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 0 4px #000, 0 1px 0 #000, 1px 0 0 #000, 0 -1px 0 #000, -1px 0 0 #000;
+  letter-spacing: 0.04em;
+}
+
+/* Rarity border ring */
+.slot[data-tier="2"] { border-color: #1eff00; }
+.slot[data-tier="3"] { border-color: #0070dd; box-shadow: inset 0 0 6px rgba(0,112,221,0.4); }
+.slot[data-tier="4"] { border-color: #a335ee; box-shadow: inset 0 0 8px rgba(163,53,238,0.5); }
+.slot[data-tier="5"] { border-color: #ff8000; box-shadow: inset 0 0 10px rgba(255,128,0,0.55); }
+
+/* =================== backpack tab =================== */
+.bag-wrap { display: flex; gap: 18px; flex-wrap: wrap; }
+.bag-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 56px);
+  grid-auto-rows: 56px;
+  gap: 6px;
+  padding: 12px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  /* subtle leather backing pattern */
+  background-image:
+    linear-gradient(135deg, rgba(255,180,90,0.03) 25%, transparent 25%, transparent 75%, rgba(255,180,90,0.03) 75%),
+    linear-gradient(135deg, rgba(255,180,90,0.03) 25%, transparent 25%, transparent 75%, rgba(255,180,90,0.03) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.bag-side {
+  flex: 1;
+  min-width: 200px;
+  padding: 12px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+.bag-side h3 {
+  font-family: var(--font-display);
+  letter-spacing: 0.12em;
+  color: var(--accent-orange);
+  font-size: 14px;
+  margin: 0 0 8px 0;
+}
+.bag-side .row {
+  display: flex; justify-content: space-between;
+  font-size: 12px; padding: 4px 0;
+  border-bottom: 1px dashed var(--border-color);
+}
+.bag-side .row:last-child { border-bottom: none; }
+.bag-side .row .v { color: var(--accent-gold); font-family: var(--font-display); }
+
+/* =================== tooltip =================== */
+.tooltip {
+  position: fixed;
+  display: none;
+  pointer-events: none;
+  z-index: 10000;
+  min-width: 180px;
+  max-width: 260px;
+  background: #06050399;
+  border: 1px solid var(--accent-orange);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  box-shadow: var(--glow-orange);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.tooltip.show { display: block; }
+.tooltip .t-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.tooltip .t-line { color: var(--text-dim); font-size: 11px; }
+.tooltip .t-line .v { color: var(--accent-gold); }
+.tooltip .t-desc { margin-top: 6px; font-style: italic; color: var(--text-dim); font-size: 11px; }
+
+/* =================== talents tab =================== */
+.talents-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.prof-col {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 14px;
+}
+.prof-head { display: flex; justify-content: space-between; align-items: baseline; }
+.prof-name {
+  font-family: var(--font-display);
+  letter-spacing: 0.14em;
+  color: var(--accent-orange);
+  font-size: 18px;
+  text-shadow: var(--glow-orange);
+}
+.prof-level {
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--accent-gold);
+}
+.xp-bar {
+  height: 12px;
+  background: #0a0806;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 0 4px;
+}
+.xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-orange-dim), var(--accent-orange), var(--accent-gold));
+  width: 0;
+  transition: width 0.4s ease;
+  box-shadow: 0 0 8px rgba(255,140,66,0.6);
+}
+.xp-text {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  text-align: right;
+}
+.prof-points {
+  margin: 10px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.prof-points .v { color: var(--accent-gold); font-family: var(--font-display); font-size: 14px; }
+
+.talent-list { display: flex; flex-direction: column; gap: 8px; }
+.talent-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  background: #0a0806;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  transition: border-color .12s, opacity .12s;
+}
+.talent-row.locked { opacity: 0.45; }
+.talent-row.maxed { border-color: var(--accent-gold); box-shadow: inset 0 0 8px rgba(255,210,74,0.25); }
+.talent-icon {
+  width: 36px; height: 36px;
+  border-radius: 6px;
+  background: radial-gradient(circle at 30% 30%, #fff8, transparent 55%), var(--talent-color, var(--accent-orange-dim));
+  border: 1px solid var(--accent-orange);
+  flex-shrink: 0;
+}
+.talent-meta { flex: 1; }
+.talent-name {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.talent-desc { font-size: 11px; color: var(--text-dim); }
+.talent-rank {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--accent-gold);
+  min-width: 30px;
+  text-align: center;
+}
+.talent-buy {
+  font-family: var(--font-display);
+  background: var(--accent-orange-dim);
+  color: #0a0806;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+.talent-buy:hover { background: var(--accent-orange); box-shadow: var(--glow-orange); }
+.talent-buy:disabled {
+  background: #2a221c; color: var(--text-faint); cursor: not-allowed; box-shadow: none;
+}
+
+/* =================== character tab =================== */
+.char-wrap {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+}
+.paper-doll {
+  position: relative;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 14px;
+  height: 480px;
+}
+.doll-silhouette {
+  position: absolute;
+  left: 50%; top: 14px;
+  transform: translateX(-50%);
+  width: 90px;
+  height: 230px;
+  background: radial-gradient(ellipse 36px 36px at 50% 30px, var(--text-faint) 0%, transparent 70%),
+              linear-gradient(180deg, transparent 60px, var(--text-faint) 60px, var(--text-faint) 200px, transparent 200px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+/* The 10 slot positions hug the silhouette in two columns */
+.doll-slot { position: absolute; }
+.doll-slot[data-slot="head"]     { top:  14px; left:  16px; }
+.doll-slot[data-slot="neck"]     { top:  82px; left:  16px; }
+.doll-slot[data-slot="chest"]    { top: 150px; left:  16px; }
+.doll-slot[data-slot="hands"]    { top: 218px; left:  16px; }
+.doll-slot[data-slot="legs"]     { top: 286px; left:  16px; }
+.doll-slot[data-slot="feet"]     { top: 354px; left:  16px; }
+.doll-slot[data-slot="mainhand"] { top: 286px; right: 16px; }
+.doll-slot[data-slot="offhand"]  { top: 354px; right: 16px; }
+.doll-slot[data-slot="ring"]     { top: 150px; right: 16px; }
+.doll-slot[data-slot="trinket"]  { top: 218px; right: 16px; }
+.doll-slot .slot-label {
+  position: absolute;
+  top: -14px; left: 0; right: 0;
+  text-align: center;
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.char-right {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 14px;
+  display: flex; flex-direction: column;
+  gap: 14px;
+}
+.stats-block h3 {
+  font-family: var(--font-display);
+  letter-spacing: 0.12em;
+  color: var(--accent-orange);
+  font-size: 14px;
+  margin: 0 0 8px 0;
+}
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.stat-cell {
+  display: flex; justify-content: space-between;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-color);
+}
+.stat-cell .v { color: var(--accent-gold); font-family: var(--font-display); }
+
+/* compact bag rendered to the right of the paper-doll so drag/drop is visual */
+.char-bag {
+  display: grid;
+  grid-template-columns: repeat(5, 48px);
+  grid-auto-rows: 48px;
+  gap: 4px;
+}
+.char-bag .slot { width: 48px; height: 48px; }
+.char-bag .slot .icon { width: 34px; height: 34px; }
+
+/* =================== empty/hint =================== */
+.empty-hint {
+  padding: 14px;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-style: italic;
+  text-align: center;
+}
+</style>
+</head>
+<body class="hidden">
+
+<div class="overlay-root">
+  <div class="overlay-panel">
+    <div class="overlay-header">
+      <div class="overlay-tabs">
+        <button class="tab-btn active" data-tab="bag">Backpack</button>
+        <button class="tab-btn" data-tab="talents">Professions</button>
+        <button class="tab-btn" data-tab="char">Character</button>
+      </div>
+      <button class="overlay-close" id="overlay-close" title="Close">X</button>
+    </div>
+
+    <div class="overlay-body">
+
+      <!-- ============== BACKPACK TAB ============== -->
+      <section data-section="bag" class="active">
+        <div class="bag-wrap">
+          <div class="bag-grid" id="bag-grid"></div>
+          <div class="bag-side">
+            <h3>Hoard</h3>
+            <div class="row"><span>Slots used</span><span class="v" id="bag-used">0 / 36</span></div>
+            <div class="row"><span>Total ore</span><span class="v" id="bag-totalore">0</span></div>
+            <div class="row"><span>Gear pieces</span><span class="v" id="bag-totalgear">0</span></div>
+            <div class="row"><span>Estimated value</span><span class="v" id="bag-value">0 Dust</span></div>
+            <div class="empty-hint" style="margin-top:14px">
+              Right-click an item for actions.<br>Drag to rearrange. Same items stack.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============== PROFESSIONS / TALENTS TAB ============== -->
+      <section data-section="talents">
+        <div class="talents-wrap">
+
+          <div class="prof-col" data-prof="mining">
+            <div class="prof-head">
+              <div class="prof-name">Mining</div>
+              <div class="prof-level" id="mining-lvl">1</div>
+            </div>
+            <div class="xp-bar"><div class="xp-fill" id="mining-xp-fill"></div></div>
+            <div class="xp-text" id="mining-xp-text">0 / 50</div>
+            <div class="prof-points">Talent points: <span class="v" id="mining-points">0</span></div>
+            <div class="talent-list" id="mining-talents"></div>
+          </div>
+
+          <div class="prof-col" data-prof="smith">
+            <div class="prof-head">
+              <div class="prof-name">Blacksmithing</div>
+              <div class="prof-level" id="smith-lvl">1</div>
+            </div>
+            <div class="xp-bar"><div class="xp-fill" id="smith-xp-fill"></div></div>
+            <div class="xp-text" id="smith-xp-text">0 / 50</div>
+            <div class="prof-points">Talent points: <span class="v" id="smith-points">0</span></div>
+            <div class="talent-list" id="smith-talents"></div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ============== CHARACTER TAB ============== -->
+      <section data-section="char">
+        <div class="char-wrap">
+          <div class="paper-doll" id="paper-doll">
+            <div class="doll-silhouette"></div>
+            <!-- slots are injected by JS so the order stays in items.js -->
+          </div>
+          <div class="char-right">
+            <div class="stats-block">
+              <h3>Combat Stats</h3>
+              <div class="stats-grid">
+                <div class="stat-cell"><span>Armor</span><span class="v" id="stat-armor">0</span></div>
+                <div class="stat-cell"><span>Damage</span><span class="v" id="stat-damage">0</span></div>
+                <div class="stat-cell"><span>Mining Speed</span><span class="v" id="stat-minespd">1.00x</span></div>
+                <div class="stat-cell"><span>Mining Luck</span><span class="v" id="stat-minluck">0%</span></div>
+                <div class="stat-cell"><span>XP Bonus</span><span class="v" id="stat-xpbonus">0%</span></div>
+                <div class="stat-cell"><span>Fusion Rate</span><span class="v" id="stat-fusion">50%</span></div>
+              </div>
+            </div>
+            <div class="stats-block" style="flex:1; display:flex; flex-direction:column;">
+              <h3>Bag</h3>
+              <div class="char-bag" id="char-bag"></div>
+              <div class="empty-hint">Drag gear from this bag onto a slot to equip.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="t-name"></div>
+  <div class="t-body"></div>
+</div>
+
+<div id="pb-debug"></div>
+
+<script src="js/portals-bridge.js?v=8"></script>
+<script src="js/items.js?v=8"></script>
+<script>
+'use strict';
+
+/* =========================================================================
+ *                              STATE
+ * =========================================================================*/
+var ITEMS    = window.ORE_ITEMS.ITEMS;
+var TIER     = window.ORE_ITEMS.TIER;
+var SLOTS    = window.ORE_ITEMS.SLOTS;
+var xpForLevel  = window.ORE_ITEMS.xpForLevel;
+var levelFromXp = window.ORE_ITEMS.levelFromXp;
+
+// Backpack: 36 entries, each null or {id, count}. Slot 0 is top-left.
+var BAG_SIZE = 36;
+var bag = new Array(BAG_SIZE).fill(null);
+
+// Equipped: { slot: itemId | null }
+var equipped = {};
+SLOTS.forEach(function (s) { equipped[s] = null; });
+
+// Talent / profession state. Mirrors what's persisted in Portals variables.
+var prof = {
+  mining: { xp: 0, level: 1, points: 0, talents: {} },
+  smith:  { xp: 0, level: 1, points: 0, talents: {} }
+};
+
+// =========================================================================
+//                              TALENT TREES
+// =========================================================================
+// Each talent: id, name, desc(rank), maxRank, effect(rank) -> stat patch, color
+// Effects are read by recomputeStats() and applied to derived UI numbers.
+// =========================================================================
+var TALENTS = {
+  mining: [
+    { id:'prospector', name:'Prospector', maxRank:5, color:'#ffd24a',
+      desc: function(r){ return '+'+(r*5)+'% chance to mine 1 extra ore'; },
+      effect: function(r){ return { extraDropPct: r*5 }; } },
+    { id:'quick_strike', name:'Quick Strike', maxRank:5, color:'#ff8c42',
+      desc: function(r){ return '+'+(r*10)+'% mining XP'; },
+      effect: function(r){ return { xpBonusPct: r*10 }; } },
+    { id:'tough_veins', name:'Tough Veins', maxRank:3, color:'#cd7f32',
+      desc: function(r){ return '+'+(r*15)+'% mining speed'; },
+      effect: function(r){ return { mineSpeedPct: r*15 }; } },
+    { id:'lucky_find', name:'Lucky Find', maxRank:3, color:'#7df9ff',
+      desc: function(r){ return '+'+(r*2)+'% chance of crystal shard while mining any ore'; },
+      effect: function(r){ return { crystalChancePct: r*2 }; } },
+    { id:'motherlode', name:'Motherlode', maxRank:1, color:'#ff8000',
+      desc: function(){ return '1% chance to mine a full stack of 8 from any vein'; },
+      effect: function(r){ return { motherlodeChancePct: r*1 }; } }
+  ],
+  smith: [
+    { id:'apprentice', name:'Apprentice', maxRank:5, color:'#ff8c42',
+      desc: function(r){ return '+'+(r*5)+'% fusion success rate'; },
+      effect: function(r){ return { fusionBonusPct: r*5 }; } },
+    { id:'reinforce', name:'Reinforce', maxRank:5, color:'#7d7d7d',
+      desc: function(r){ return '+'+(r*4)+'% armor on crafted gear'; },
+      effect: function(r){ return { armorBonusPct: r*4 }; } },
+    { id:'edge_grind', name:'Edge Grind', maxRank:5, color:'#c0c0c0',
+      desc: function(r){ return '+'+(r*4)+'% damage on crafted weapons'; },
+      effect: function(r){ return { dmgBonusPct: r*4 }; } },
+    { id:'salvage', name:'Salvage', maxRank:3, color:'#cd7f32',
+      desc: function(r){ return (r*10)+'% chance to refund half ingredients on failed fusion'; },
+      effect: function(r){ return { salvagePct: r*10 }; } },
+    { id:'master_smith', name:'Master Smith', maxRank:1, color:'#a335ee',
+      desc: function(){ return 'Unlock rare fusion recipes (crystal-tier gear)'; },
+      effect: function(r){ return { masterUnlocked: r>0 }; } }
+  ]
+};
+
+/* =========================================================================
+ *                          PORTALS PERSISTENCE
+ * =========================================================================*/
+var saveTimer = null;
+function scheduleSave() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(function () {
+    saveTimer = null;
+    persistAll();
+  }, 400);
+}
+
+function persistAll() {
+  // Use compact JSON to keep Portals variable payloads small. We send each
+  // chunk as a separate PortalsBridge message because the Portals variable
+  // system has length caps on per-call payloads.
+  send('set_inv_layout', JSON.stringify(compactBag(bag)));
+  send('set_equipped',   JSON.stringify(equipped));
+  send('set_mining_state', JSON.stringify({ xp: prof.mining.xp, pts: prof.mining.points, t: prof.mining.talents }));
+  send('set_smith_state',  JSON.stringify({ xp: prof.smith.xp,  pts: prof.smith.points,  t: prof.smith.talents  }));
+}
+
+function compactBag(arr) {
+  // Compress to map { "5": ["copper_ore", 12], ... } so missing slots default to null.
+  // Saves ~60% bytes vs full 36-entry array of nulls.
+  var out = {};
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i]) out[i] = [arr[i].id, arr[i].count];
+  }
+  return out;
+}
+function expandBag(map) {
+  var arr = new Array(BAG_SIZE).fill(null);
+  if (!map) return arr;
+  Object.keys(map).forEach(function (k) {
+    var i = +k;
+    if (i >= 0 && i < BAG_SIZE && Array.isArray(map[k])) {
+      arr[i] = { id: map[k][0], count: map[k][1] };
+    }
+  });
+  return arr;
+}
+
+// Send underscore-format "type_payload" to Portals.
+function send(type, payload) {
+  if (!window.PortalsBridge) return;
+  if (payload === undefined) PortalsBridge.sendRaw(type);
+  else PortalsBridge.sendRaw(type + '_' + payload);
+}
+
+/* =========================================================================
+ *                           BAG OPERATIONS
+ * =========================================================================*/
+function addItem(id, count) {
+  count = count|0;
+  if (!ITEMS[id] || count <= 0) return;
+  var def = ITEMS[id];
+  var stackMax = def.stackSize || 1;
+
+  // First fill existing stacks of the same id.
+  for (var i = 0; i < BAG_SIZE && count > 0; i++) {
+    var slot = bag[i];
+    if (slot && slot.id === id && slot.count < stackMax) {
+      var room = stackMax - slot.count;
+      var take = Math.min(room, count);
+      slot.count += take;
+      count -= take;
+    }
+  }
+  // Then drop the remainder into the first empty slot.
+  for (var j = 0; j < BAG_SIZE && count > 0; j++) {
+    if (bag[j] == null) {
+      var take2 = Math.min(stackMax, count);
+      bag[j] = { id: id, count: take2 };
+      count -= take2;
+    }
+  }
+  if (count > 0) {
+    PortalsBridge && PortalsBridge.debugLog('inventory full, dropped ' + count + ' x ' + id);
+  }
+  renderBag();
+  scheduleSave();
+}
+
+function removeItem(id, count) {
+  count = count|0;
+  if (count <= 0) return;
+  for (var i = BAG_SIZE - 1; i >= 0 && count > 0; i--) {
+    if (bag[i] && bag[i].id === id) {
+      var take = Math.min(bag[i].count, count);
+      bag[i].count -= take;
+      count -= take;
+      if (bag[i].count <= 0) bag[i] = null;
+    }
+  }
+  renderBag();
+  scheduleSave();
+}
+
+// Move/swap/stack between two indices in the bag (drag-and-drop).
+function moveSlot(from, to) {
+  if (from === to) return;
+  var a = bag[from], b = bag[to];
+  if (!a) return;
+  if (!b) {
+    bag[to] = a; bag[from] = null;
+  } else if (b.id === a.id) {
+    var max = (ITEMS[a.id] && ITEMS[a.id].stackSize) || 1;
+    var room = max - b.count;
+    var take = Math.min(room, a.count);
+    b.count += take; a.count -= take;
+    if (a.count <= 0) bag[from] = null;
+  } else {
+    bag[from] = b; bag[to] = a;
+  }
+  renderBag();
+  scheduleSave();
+}
+
+/* =========================================================================
+ *                      EQUIP / UNEQUIP OPERATIONS
+ * =========================================================================*/
+function equipFromBag(bagIdx) {
+  var entry = bag[bagIdx];
+  if (!entry) return;
+  var def = ITEMS[entry.id];
+  if (!def || def.type !== 'gear') return;
+  // Required smith level check
+  // (we let players equip anything for now; gating is content-design later)
+
+  // Swap whatever's in that slot
+  var slot = def.equipSlot;
+  var prev = equipped[slot];
+  equipped[slot] = entry.id;
+  // Consume one count from bag entry (gear stacks at 1, but be safe)
+  entry.count -= 1;
+  if (entry.count <= 0) bag[bagIdx] = null;
+  // Put previous gear back into bag (try same slot, else first empty)
+  if (prev) addItem(prev, 1);
+  renderBag(); renderCharacter(); scheduleSave();
+}
+
+function unequipSlot(slotName) {
+  var prev = equipped[slotName];
+  if (!prev) return;
+  equipped[slotName] = null;
+  addItem(prev, 1); // also re-renders
+  renderCharacter();
+  scheduleSave();
+}
+
+/* =========================================================================
+ *                              STATS
+ * =========================================================================*/
+function recomputeStats() {
+  var armor = 0, dmg = 0;
+  SLOTS.forEach(function (s) {
+    var id = equipped[s];
+    if (!id) return;
+    var def = ITEMS[id];
+    if (!def) return;
+    armor += def.armor || 0;
+    dmg   += def.damage || 0;
+  });
+
+  // Apply blacksmithing reinforce/edge_grind bonuses to equipped gear.
+  var reinforce = (prof.smith.talents.reinforce || 0) * 4;
+  var edge      = (prof.smith.talents.edge_grind || 0) * 4;
+  armor = Math.round(armor * (1 + reinforce / 100));
+  dmg   = Math.round(dmg   * (1 + edge      / 100));
+
+  var minSpd  = 1 + (prof.mining.talents.tough_veins || 0) * 0.15;
+  var minLuck = (prof.mining.talents.prospector  || 0) * 5
+              + (prof.mining.talents.motherlode  || 0) * 1;
+  var xpBonus = (prof.mining.talents.quick_strike || 0) * 10;
+  var fusion  = 50 + (prof.smith.talents.apprentice || 0) * 5;
+
+  byId('stat-armor').textContent   = armor;
+  byId('stat-damage').textContent  = dmg;
+  byId('stat-minespd').textContent = minSpd.toFixed(2) + 'x';
+  byId('stat-minluck').textContent = minLuck + '%';
+  byId('stat-xpbonus').textContent = xpBonus + '%';
+  byId('stat-fusion').textContent  = Math.min(100, fusion) + '%';
+
+  // Forward derived stats to the room so mining/spawning logic can use them.
+  send('player_stats', [armor, dmg, Math.round(minLuck), Math.round(xpBonus), Math.round(fusion)].join('_'));
+}
+
+/* =========================================================================
+ *                             RENDERING
+ * =========================================================================*/
+function byId(id) { return document.getElementById(id); }
+
+function makeSlotEl(entry, idx, opts) {
+  opts = opts || {};
+  var el = document.createElement('div');
+  el.className = 'slot';
+  el.dataset.idx = idx;
+  el.dataset.zone = opts.zone || 'bag';
+  if (opts.equipSlot) el.dataset.equipSlot = opts.equipSlot;
+
+  if (!entry) {
+    el.classList.add('empty');
+    if (opts.equipSlot) {
+      var lbl = document.createElement('div');
+      lbl.className = 'slot-label';
+      lbl.textContent = opts.equipSlot;
+      el.appendChild(lbl);
+    }
+  } else {
+    var def = ITEMS[entry.id];
+    if (def) {
+      el.style.setProperty('--item-color', def.color);
+      el.dataset.tier = def.tier;
+      if (def.type === 'gear') el.classList.add('gear');
+      var ic = document.createElement('div');
+      ic.className = 'icon';
+      el.appendChild(ic);
+      if (entry.count > 1) {
+        var c = document.createElement('div');
+        c.className = 'count';
+        c.textContent = entry.count;
+        el.appendChild(c);
+      }
+    }
+  }
+  wireSlot(el, entry, opts);
+  return el;
+}
+
+function renderBag() {
+  var grid = byId('bag-grid');
+  grid.innerHTML = '';
+  for (var i = 0; i < BAG_SIZE; i++) {
+    grid.appendChild(makeSlotEl(bag[i], i, { zone: 'bag' }));
+  }
+  // Mini-bag on character tab — first 15 slots only (3 rows of 5)
+  var cbag = byId('char-bag');
+  cbag.innerHTML = '';
+  for (var k = 0; k < 15; k++) {
+    cbag.appendChild(makeSlotEl(bag[k], k, { zone: 'bag' }));
+  }
+  // Hoard summary
+  var used = 0, totOre = 0, totGear = 0, value = 0;
+  bag.forEach(function (e) {
+    if (!e) return;
+    used++;
+    var def = ITEMS[e.id];
+    if (!def) return;
+    if (def.type === 'raw_ore') totOre += e.count;
+    if (def.type === 'gear')    totGear += e.count;
+    value += (def.sellValue || 0) * e.count;
+  });
+  byId('bag-used').textContent      = used + ' / ' + BAG_SIZE;
+  byId('bag-totalore').textContent  = totOre.toLocaleString();
+  byId('bag-totalgear').textContent = totGear.toLocaleString();
+  byId('bag-value').textContent     = value.toLocaleString() + ' Dust';
+}
+
+function renderTalentTree(profId) {
+  var ul = byId(profId + '-talents');
+  ul.innerHTML = '';
+  var defs = TALENTS[profId];
+  var pState = prof[profId];
+  var unlockTiers = Math.floor(pState.level / 5); // every 5 levels unlocks a tier
+
+  defs.forEach(function (t, i) {
+    var rank = pState.talents[t.id] || 0;
+    var tierLocked = i > unlockTiers;
+    var row = document.createElement('div');
+    row.className = 'talent-row';
+    if (tierLocked) row.classList.add('locked');
+    if (rank >= t.maxRank) row.classList.add('maxed');
+
+    var ic = document.createElement('div');
+    ic.className = 'talent-icon';
+    ic.style.setProperty('--talent-color', t.color);
+    row.appendChild(ic);
+
+    var meta = document.createElement('div');
+    meta.className = 'talent-meta';
+    meta.innerHTML = '<div class="talent-name">' + t.name + '</div>'
+                   + '<div class="talent-desc">' + t.desc(Math.max(1, rank)) + '</div>';
+    row.appendChild(meta);
+
+    var rnk = document.createElement('div');
+    rnk.className = 'talent-rank';
+    rnk.textContent = rank + ' / ' + t.maxRank;
+    row.appendChild(rnk);
+
+    var btn = document.createElement('button');
+    btn.className = 'talent-buy';
+    btn.textContent = '+';
+    btn.disabled = tierLocked || rank >= t.maxRank || pState.points <= 0;
+    btn.addEventListener('click', function () { buyTalent(profId, t.id); });
+    row.appendChild(btn);
+
+    ul.appendChild(row);
+  });
+}
+
+function renderTalentBars() {
+  ['mining','smith'].forEach(function (p) {
+    var s = prof[p];
+    var info = levelFromXp(s.xp);
+    s.level = info.level;
+    byId(p + '-lvl').textContent = info.level;
+    var pct = info.xpForNext > 0 ? (info.xpInLevel / info.xpForNext) * 100 : 0;
+    byId(p + '-xp-fill').style.width = Math.min(100, pct).toFixed(1) + '%';
+    byId(p + '-xp-text').textContent = info.xpInLevel.toLocaleString() + ' / ' + info.xpForNext.toLocaleString();
+    byId(p + '-points').textContent = s.points;
+  });
+}
+
+function renderCharacter() {
+  var doll = byId('paper-doll');
+  // Reset slot tiles (keep silhouette + label divs that aren't slots)
+  Array.prototype.slice.call(doll.querySelectorAll('.doll-slot')).forEach(function (n) { n.remove(); });
+  SLOTS.forEach(function (slotName) {
+    var wrap = document.createElement('div');
+    wrap.className = 'doll-slot';
+    wrap.dataset.slot = slotName;
+    var entry = equipped[slotName] ? { id: equipped[slotName], count: 1 } : null;
+    var slotEl = makeSlotEl(entry, slotName, { zone: 'gear', equipSlot: slotName });
+    wrap.appendChild(slotEl);
+    doll.appendChild(wrap);
+  });
+  recomputeStats();
+}
+
+/* =========================================================================
+ *                         DRAG / RIGHT-CLICK
+ * =========================================================================*/
+var dragSrc = null; // { zone: 'bag'|'gear', idx: number|slotName }
+
+function wireSlot(el, entry, opts) {
+  el.draggable = !!entry;
+
+  el.addEventListener('dragstart', function (e) {
+    if (!entry) return;
+    dragSrc = { zone: opts.zone, idx: opts.zone === 'bag' ? +el.dataset.idx : el.dataset.equipSlot };
+    el.classList.add('dragging');
+    try { e.dataTransfer.setData('text/plain', JSON.stringify(dragSrc)); } catch (_) {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  el.addEventListener('dragend', function () { el.classList.remove('dragging'); dragSrc = null; });
+  el.addEventListener('dragover', function (e) { e.preventDefault(); el.classList.add('drag-over'); });
+  el.addEventListener('dragleave', function () { el.classList.remove('drag-over'); });
+  el.addEventListener('drop', function (e) {
+    e.preventDefault();
+    el.classList.remove('drag-over');
+    if (!dragSrc) return;
+    var dst = { zone: opts.zone, idx: opts.zone === 'bag' ? +el.dataset.idx : el.dataset.equipSlot };
+    handleDrop(dragSrc, dst);
+  });
+
+  // Click — equip if shift-click on gear in bag, otherwise just select.
+  el.addEventListener('click', function (e) {
+    if (!entry) return;
+    if (opts.zone === 'bag' && ITEMS[entry.id] && ITEMS[entry.id].type === 'gear') {
+      if (e.shiftKey) equipFromBag(+el.dataset.idx);
+    }
+  });
+
+  // Right-click context: bag → Equip|Drop, gear slot → Unequip
+  el.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    if (!entry) return;
+    if (opts.zone === 'bag') {
+      if (ITEMS[entry.id] && ITEMS[entry.id].type === 'gear') equipFromBag(+el.dataset.idx);
+    } else if (opts.zone === 'gear') {
+      unequipSlot(el.dataset.equipSlot);
+    }
+  });
+
+  // Hover tooltip
+  el.addEventListener('mouseenter', function (e) { if (entry) showTooltip(entry, e); });
+  el.addEventListener('mousemove',  function (e) { if (entry) moveTooltip(e); });
+  el.addEventListener('mouseleave', hideTooltip);
+}
+
+function handleDrop(src, dst) {
+  if (src.zone === 'bag' && dst.zone === 'bag') {
+    moveSlot(src.idx, dst.idx);
+  } else if (src.zone === 'bag' && dst.zone === 'gear') {
+    // Equip the bag item if its slot matches dst
+    var entry = bag[src.idx];
+    if (!entry) return;
+    var def = ITEMS[entry.id];
+    if (!def || def.type !== 'gear' || def.equipSlot !== dst.idx) return;
+    equipFromBag(src.idx);
+  } else if (src.zone === 'gear' && dst.zone === 'bag') {
+    unequipSlot(src.idx);
+  } else if (src.zone === 'gear' && dst.zone === 'gear') {
+    if (src.idx === dst.idx) return;
+    // Two-handed sanity could go here; for now, allow only matching slot drags.
+    var srcId = equipped[src.idx], dstId = equipped[dst.idx];
+    var srcDef = srcId && ITEMS[srcId];
+    if (!srcDef || srcDef.equipSlot !== dst.idx) return;
+    equipped[dst.idx] = srcId; equipped[src.idx] = dstId;
+    renderCharacter(); scheduleSave();
+  }
+}
+
+/* =========================================================================
+ *                              TOOLTIP
+ * =========================================================================*/
+var tooltipEl = byId('tooltip');
+function showTooltip(entry, e) {
+  var def = ITEMS[entry.id];
+  if (!def) return;
+  var nameEl = tooltipEl.querySelector('.t-name');
+  var bodyEl = tooltipEl.querySelector('.t-body');
+  nameEl.textContent = def.name;
+  nameEl.style.color = TIER[def.tier].border;
+  var lines = [];
+  lines.push('<div class="t-line">' + (TIER[def.tier].name).toUpperCase() + ' &middot; ' + def.type.replace('_',' ') + '</div>');
+  if (def.armor)    lines.push('<div class="t-line">Armor: <span class="v">' + def.armor + '</span></div>');
+  if (def.damage)   lines.push('<div class="t-line">Damage: <span class="v">' + def.damage + '</span></div>');
+  if (def.equipSlot) lines.push('<div class="t-line">Slot: ' + def.equipSlot + '</div>');
+  if (def.xpPerMine) lines.push('<div class="t-line">+<span class="v">' + def.xpPerMine + '</span> Mining XP</div>');
+  if (def.sellValue) lines.push('<div class="t-line">Sells for <span class="v">' + def.sellValue + '</span> Dust</div>');
+  if (entry.count > 1) lines.push('<div class="t-line">Stack: <span class="v">' + entry.count + '</span></div>');
+  if (def.desc) lines.push('<div class="t-desc">' + def.desc + '</div>');
+  bodyEl.innerHTML = lines.join('');
+  tooltipEl.classList.add('show');
+  moveTooltip(e);
+}
+function moveTooltip(e) {
+  var pad = 14, ttw = tooltipEl.offsetWidth, tth = tooltipEl.offsetHeight;
+  var x = e.clientX + pad, y = e.clientY + pad;
+  if (x + ttw > window.innerWidth)  x = e.clientX - ttw - pad;
+  if (y + tth > window.innerHeight) y = e.clientY - tth - pad;
+  tooltipEl.style.left = x + 'px';
+  tooltipEl.style.top  = y + 'px';
+}
+function hideTooltip() { tooltipEl.classList.remove('show'); }
+
+/* =========================================================================
+ *                              TALENTS
+ * =========================================================================*/
+function buyTalent(profId, talentId) {
+  var s = prof[profId];
+  var def = TALENTS[profId].filter(function (t) { return t.id === talentId; })[0];
+  if (!def) return;
+  var cur = s.talents[talentId] || 0;
+  if (cur >= def.maxRank) return;
+  if (s.points <= 0) return;
+  var i = TALENTS[profId].indexOf(def);
+  var unlockTiers = Math.floor(s.level / 5);
+  if (i > unlockTiers) return;
+  s.talents[talentId] = cur + 1;
+  s.points -= 1;
+  renderTalentTree(profId);
+  recomputeStats();
+  scheduleSave();
+}
+
+/* =========================================================================
+ *                          XP / LEVEL HOOKS
+ * =========================================================================*/
+// Called when Portals sends "mining_xp_NNN" / "smith_xp_NNN". Awards a talent
+// point on every level-up.
+function addProfXp(profId, amount) {
+  var s = prof[profId];
+  var before = s.level;
+  s.xp += Math.max(0, amount|0);
+  var info = levelFromXp(s.xp);
+  if (info.level > before) {
+    s.points += (info.level - before);
+  }
+  s.level = info.level;
+  renderTalentBars();
+  renderTalentTree(profId);
+  scheduleSave();
+}
+
+/* =========================================================================
+ *                       TAB SWITCHING + VISIBILITY
+ * =========================================================================*/
+var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab-btn'));
+tabs.forEach(function (btn) {
+  btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
+});
+function switchTab(name) {
+  tabs.forEach(function (b) { b.classList.toggle('active', b.dataset.tab === name); });
+  Array.prototype.slice.call(document.querySelectorAll('section[data-section]'))
+    .forEach(function (s) { s.classList.toggle('active', s.dataset.section === name); });
+}
+
+function showOverlay(tab) {
+  document.body.classList.remove('hidden');
+  if (tab) switchTab(tab);
+}
+function hideOverlay() { document.body.classList.add('hidden'); hideTooltip(); }
+
+byId('overlay-close').addEventListener('click', function () {
+  hideOverlay();
+  send('close_overlay');
+});
+
+// Esc closes too.
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { hideOverlay(); send('close_overlay'); }
+});
+
+/* =========================================================================
+ *                       PORTALS MESSAGE HANDLERS
+ * =========================================================================*/
+PortalsBridge.onMessage(function (m) {
+  switch (m.type) {
+    case 'open_inventory': showOverlay('bag');     break;
+    case 'open_talents':   showOverlay('talents'); break;
+    case 'open_character': showOverlay('char');    break;
+    case 'close_overlay':  hideOverlay();          break;
+    case 'toggle_overlay': document.body.classList.toggle('hidden'); break;
+
+    // Inventory deltas
+    case 'add_item': {
+      // payload: [id, count]  OR  [id] (count=1)
+      var id = m.payload[0];
+      var cnt = m.payload[1] != null ? +m.payload[1] : 1;
+      if (typeof id === 'string') addItem(id, cnt);
+      break;
+    }
+    case 'remove_item': {
+      var rid = m.payload[0];
+      var rcnt = m.payload[1] != null ? +m.payload[1] : 1;
+      if (typeof rid === 'string') removeItem(rid, rcnt);
+      break;
+    }
+
+    // Mining tick (from world ore node trigger). Payload: [ore_id, xp, count]
+    case 'mine_hit': {
+      var oid = m.payload[0];
+      var xpAmt = m.payload[1] != null ? +m.payload[1] : (ITEMS[oid] && ITEMS[oid].xpPerMine) || 0;
+      var oCnt = m.payload[2] != null ? +m.payload[2] : 1;
+      // Apply mining luck talents for extra drops
+      var bonus = 0;
+      var pros = (prof.mining.talents.prospector || 0) * 5;
+      if (Math.random() * 100 < pros) bonus += 1;
+      var mother = (prof.mining.talents.motherlode || 0) * 1;
+      if (Math.random() * 100 < mother) bonus += 7;
+      // Crystal lucky find
+      if (Math.random() * 100 < (prof.mining.talents.lucky_find || 0) * 2) {
+        addItem('crystal_shard', 1);
+      }
+      if (oid && ITEMS[oid]) addItem(oid, oCnt + bonus);
+      // Quick Strike XP bonus
+      var xpBonus = (prof.mining.talents.quick_strike || 0) * 10;
+      addProfXp('mining', Math.floor(xpAmt * (1 + xpBonus / 100)));
+      break;
+    }
+
+    case 'smith_xp': addProfXp('smith', m.payload[0]|0); break;
+
+    // State restore from Portals (set when player loads in)
+    case 'inv_layout':
+      try { bag = expandBag(JSON.parse(String(m.raw).replace(/^inv_layout_/, ''))); renderBag(); } catch (e) {}
+      break;
+    case 'equipped':
+      try {
+        var eq = JSON.parse(String(m.raw).replace(/^equipped_/, ''));
+        SLOTS.forEach(function (s) { equipped[s] = eq[s] || null; });
+        renderCharacter();
+      } catch (e) {}
+      break;
+    case 'mining_state':
+      try {
+        var ms = JSON.parse(String(m.raw).replace(/^mining_state_/, ''));
+        prof.mining.xp = ms.xp || 0;
+        prof.mining.points = ms.pts || 0;
+        prof.mining.talents = ms.t || {};
+        renderTalentBars(); renderTalentTree('mining'); recomputeStats();
+      } catch (e) {}
+      break;
+    case 'smith_state':
+      try {
+        var ss = JSON.parse(String(m.raw).replace(/^smith_state_/, ''));
+        prof.smith.xp = ss.xp || 0;
+        prof.smith.points = ss.pts || 0;
+        prof.smith.talents = ss.t || {};
+        renderTalentBars(); renderTalentTree('smith'); recomputeStats();
+      } catch (e) {}
+      break;
+  }
+});
+
+/* =========================================================================
+ *                          DEV / STANDALONE
+ * =========================================================================*/
+// When opened standalone (not inside Portals) seed a few items so the UI
+// looks alive on first load. Detected by absence of PortalsSdk after 2s.
+setTimeout(function () {
+  if (!window.PortalsSdk || !window.PortalsSdk.sendMessageToUnity) return;
+  // Inside Portals — do nothing; data will arrive via messages.
+}, 100);
+if (location.search.indexOf('demo=1') !== -1) {
+  addItem('copper_ore', 47);
+  addItem('bronze_ore', 12);
+  addItem('iron_ore', 3);
+  addItem('copper_pickaxe', 1);
+  addItem('bronze_helm', 1);
+  addItem('iron_sword', 1);
+  prof.mining.xp = 220; prof.mining.points = 2;
+  prof.smith.xp = 60; prof.smith.points = 1;
+  renderTalentBars(); renderTalentTree('mining'); renderTalentTree('smith');
+}
+
+// Initial render
+renderBag();
+renderCharacter();
+renderTalentBars();
+renderTalentTree('mining');
+renderTalentTree('smith');
+recomputeStats();
+
+// Default: hidden until HUD opens us.
+document.body.classList.add('hidden');
+if (location.search.indexOf('demo=1') !== -1) document.body.classList.remove('hidden');
+</script>
+</body>
+</html>

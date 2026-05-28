@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HUD — ORE REALMS</title>
-<link rel="stylesheet" href="css/hud.css?v=4">
+<link rel="stylesheet" href="css/hud.css?v=8">
 <style>
   /* HUD is overlay-style: transparent body, fixed compact bar. */
   body { background: transparent; }
@@ -13,7 +13,7 @@
     top: 8px;
     left: 50%;
     transform: translateX(-50%);
-    min-width: 920px;
+    min-width: 1080px;
   }
   .hud-bar {
     height: 50px;
@@ -127,6 +127,47 @@
   .mute-btn.muted:hover {
     color: var(--accent-orange);
   }
+
+  /* Overlay-toggle buttons (backpack / talents / character). Sit just to the
+     left of the mute button. They share the mute-btn visual but use 36x36 so
+     the embedded SVG glyphs read cleanly. */
+  .ui-cell {
+    min-width: 44px;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid var(--border-color);
+  }
+  .ui-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 5px;
+    background: #14100d;
+    border: 1px solid var(--border-color);
+    color: var(--accent-orange);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    padding: 0;
+  }
+  .ui-btn:hover {
+    border-color: var(--accent-orange);
+    color: var(--accent-gold);
+    box-shadow: 0 0 8px rgba(255,140,66,0.45);
+  }
+  .ui-btn.active {
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+    box-shadow: 0 0 10px rgba(255,210,74,0.7);
+  }
+  .ui-btn svg {
+    width: 22px; height: 22px;
+    stroke: currentColor; fill: none;
+    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  }
 </style>
 </head>
 <body>
@@ -177,6 +218,27 @@
       </div>
     </div>
 
+    <div class="hud-cell ui-cell" title="Backpack (B)">
+      <button class="ui-btn" id="btn-bag" type="button" aria-label="Open backpack">
+        <!-- backpack: rounded rectangle with strap and handle -->
+        <svg viewBox="0 0 24 24"><path d="M7 7 V5 a2 2 0 0 1 2-2 h6 a2 2 0 0 1 2 2 V7"></path><rect x="4" y="7" width="16" height="14" rx="2"></rect><path d="M9 12 h6 M9 16 h6"></path></svg>
+      </button>
+    </div>
+
+    <div class="hud-cell ui-cell" title="Professions (P)">
+      <button class="ui-btn" id="btn-talents" type="button" aria-label="Open professions">
+        <!-- talents: pickaxe + hammer crossed -->
+        <svg viewBox="0 0 24 24"><path d="M3 21 L11 13"></path><path d="M5 5 L15 5 L19 9"></path><path d="M14 4 L20 10"></path><path d="M11 13 L13 15 L18 10"></path></svg>
+      </button>
+    </div>
+
+    <div class="hud-cell ui-cell" title="Character (C)">
+      <button class="ui-btn" id="btn-char" type="button" aria-label="Open character">
+        <!-- character: head and shoulders -->
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"></circle><path d="M4 21 c0-4 4-7 8-7 s8 3 8 7"></path></svg>
+      </button>
+    </div>
+
     <div class="hud-cell mute-cell">
       <div class="hud-label">Sound</div>
       <button class="mute-btn" id="hud-mute" type="button" title="Toggle sound" aria-label="Toggle sound"></button>
@@ -186,7 +248,7 @@
 
 <div id="pb-debug"></div>
 
-<script src="js/portals-bridge.js?v=4"></script>
+<script src="js/portals-bridge.js?v=8"></script>
 <script src="js/ore-decode.js?v=4"></script>
 <script src="js/solana.js?v=4"></script>
 <script src="js/ore-client.js?v=4"></script>
@@ -231,6 +293,45 @@
     }
   });
   syncMuteIcon();
+
+  // --- Overlay-toggle buttons (Backpack / Talents / Character) ---
+  // The overlay iframe (overlay.html, hosted in its own cube) listens for these
+  // underscore messages and shows the matching tab. Clicking the already-active
+  // button closes the overlay.
+  var btnBag = document.getElementById('btn-bag');
+  var btnTal = document.getElementById('btn-talents');
+  var btnChr = document.getElementById('btn-char');
+  var activeTab = null;
+  function setActive(which) {
+    activeTab = which;
+    btnBag.classList.toggle('active', which === 'bag');
+    btnTal.classList.toggle('active', which === 'talents');
+    btnChr.classList.toggle('active', which === 'char');
+  }
+  function openOrToggle(which, msg) {
+    if (activeTab === which) {
+      PortalsBridge.sendRaw('close_overlay');
+      setActive(null);
+    } else {
+      PortalsBridge.sendRaw(msg);
+      setActive(which);
+      try { SFX && SFX.coinDing && SFX.coinDing(); } catch (e) {}
+    }
+  }
+  btnBag.addEventListener('click', function () { openOrToggle('bag',     'open_inventory'); });
+  btnTal.addEventListener('click', function () { openOrToggle('talents', 'open_talents');   });
+  btnChr.addEventListener('click', function () { openOrToggle('char',    'open_character'); });
+
+  // Keyboard shortcuts: B / P / C / Escape — match WoW defaults.
+  // Only fire when no input element is focused.
+  document.addEventListener('keydown', function (e) {
+    if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+    var k = (e.key || '').toLowerCase();
+    if (k === 'b') openOrToggle('bag',     'open_inventory');
+    if (k === 'p') openOrToggle('talents', 'open_talents');
+    if (k === 'c') openOrToggle('char',    'open_character');
+    if (k === 'escape') { PortalsBridge.sendRaw('close_overlay'); setActive(null); }
+  });
 
   // Build 25 mini cells + 1 blank
   var miniCells = [];
