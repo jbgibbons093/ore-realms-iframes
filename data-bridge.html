@@ -165,12 +165,25 @@
   tickPrices();
   tickTreasury();
   setInterval(tickRound,    POLL_ROUND_MS);
-  setInterval(tickPrices,   POLL_PRICES_MS);
-  setInterval(tickTreasury, POLL_TREASURY_MS);
+
+  // Fast initial polling for prices and treasury so the parent overlay catches
+  // them within seconds of room load, even if it missed the first message.
+  // Re-fire every 1s for first 10s, then settle to 60s intervals.
+  var __initialBurstCount = 0;
+  var __initialBurst = setInterval(function(){
+    __initialBurstCount++;
+    tickPrices();
+    tickTreasury();
+    if (__initialBurstCount >= 10) {
+      clearInterval(__initialBurst);
+      setInterval(tickPrices,   POLL_PRICES_MS);
+      setInterval(tickTreasury, POLL_TREASURY_MS);
+    }
+  }, 1000);
 
   syncWindowName();
   log('bridge running');
-  post({ kind:'ore_bridge_ready', v: 11, ts: (new Date()).toISOString() });
+  post({ kind:'ore_bridge_ready', v: 12, ts: (new Date()).toISOString() });
 })();
 </script>
 </body>
